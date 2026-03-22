@@ -33,6 +33,8 @@ import {
   validateAdditionalMounts,
 } from './mount-security.js';
 import { ContainerConfig, RegisteredGroup } from './types.js';
+import { generateMcpConfig } from './mcp-config-generator.js';
+import { loadTenantConfig, findTenantByFolder } from './tenant-config.js';
 
 // Environment variables to pass through to containers for MCP server use.
 // Read from .env at startup (not loaded into host process.env).
@@ -409,6 +411,32 @@ export async function runContainerAgent(
 
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
+
+  // Generate per-tenant .mcp.json (merged with group-level overrides)
+  const tenantConfig = await loadTenantConfig();
+  if (tenantConfig) {
+    const tenant = findTenantByFolder(tenantConfig, group.folder);
+    if (tenant) {
+      const mcpConfig = generateMcpConfig(tenant);
+      const groupMcpPath = path.join(GROUPS_DIR, group.folder, '.mcp.json');
+      const overridePath = path.join(GROUPS_DIR, group.folder, '.mcp.override.json');
+
+      let finalServers = mcpConfig.mcpServers;
+
+      if (fs.existsSync(overridePath)) {
+        // Override file already exists from a previous run
+        const overrides = JSON.parse(fs.readFileSync(overridePath, 'utf-8'));
+        finalServers = { ...finalServers, ...(overrides.mcpServers ?? {}) };
+      } else if (fs.existsSync(groupMcpPath)) {
+        // First run: preserve existing hand-crafted config as override
+        fs.renameSync(groupMcpPath, overridePath);
+        const overrides = JSON.parse(fs.readFileSync(overridePath, 'utf-8'));
+        finalServers = { ...finalServers, ...(overrides.mcpServers ?? {}) };
+      }
+
+      fs.writeFileSync(groupMcpPath, JSON.stringify({ mcpServers: finalServers }, null, 2));
+    }
+  }
 
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
