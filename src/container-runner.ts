@@ -403,6 +403,7 @@ export async function runContainerAgent(
   input: ContainerInput,
   onProcess: (proc: ChildProcess, containerName: string) => void,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  memoryLimit?: string,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
 
@@ -416,6 +417,7 @@ export async function runContainerAgent(
     mounts,
     containerName,
     group.containerConfig,
+    memoryLimit,
   );
 
   logger.debug(

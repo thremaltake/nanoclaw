@@ -4,6 +4,7 @@ import path from 'path';
 import {
   ASSISTANT_NAME,
   CREDENTIAL_PROXY_PORT,
+  escapeRegex,
   IDLE_TIMEOUT,
   POLL_INTERVAL,
   TIMEZONE,
@@ -58,6 +59,9 @@ import {
   shouldDropMessage,
 } from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
+import { loadTenantConfig, findTenantByFolder, type TenantConfig, type ResolvedTenant } from './tenant-config.js';
+import { generateMcpConfig, deriveMemoryLimit } from './mcp-config-generator.js';
+import { createTenantTelegramChannel } from './channels/telegram.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
@@ -69,6 +73,10 @@ let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
+
+let tenantConfig: TenantConfig | null = null;
+const folderToTenant = new Map<string, ResolvedTenant>();
+const folderToJids = new Map<string, string[]>();
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
@@ -160,11 +168,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const isMainGroup = group.isMain === true;
 
+  const assistantName = group.assistantName ?? ASSISTANT_NAME;
   const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
   const missedMessages = getMessagesSince(
     chatJid,
     sinceTimestamp,
-    ASSISTANT_NAME,
+    assistantName,
   );
 
   if (missedMessages.length === 0) return true;
@@ -172,9 +181,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
     const allowlistCfg = loadSenderAllowlist();
+    const triggerPattern = group.triggerPattern ??
+      new RegExp(`^@${escapeRegex(assistantName)}\\b`, 'i');
     const hasTrigger = missedMessages.some(
       (m) =>
-        TRIGGER_PATTERN.test(m.content.trim()) &&
+        triggerPattern.test(m.content.trim()) &&
         (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
     );
     if (!hasTrigger) return true;
@@ -311,6 +322,9 @@ async function runAgent(
     : undefined;
 
   try {
+    const tenant = folderToTenant.get(group.folder);
+    const assistantName = group.assistantName ?? ASSISTANT_NAME;
+
     const output = await runContainerAgent(
       group,
       {
@@ -319,11 +333,15 @@ async function runAgent(
         groupFolder: group.folder,
         chatJid,
         isMain,
-        assistantName: ASSISTANT_NAME,
+        assistantName,
+        allowedTools: group.allowedTools,
+        isCustomerFacing: group.isCustomerFacing,
+        tenantId: group.tenantId,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
       wrappedOnOutput,
+      tenant ? deriveMemoryLimit(tenant) : undefined,
     );
 
     if (output.newSessionId) {
@@ -399,10 +417,13 @@ async function startMessageLoop(): Promise<void> {
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
+            const assistantName = group.assistantName ?? ASSISTANT_NAME;
+            const triggerPattern = group.triggerPattern ??
+              new RegExp(`^@${escapeRegex(assistantName)}\\b`, 'i');
             const allowlistCfg = loadSenderAllowlist();
             const hasTrigger = groupMessages.some(
               (m) =>
-                TRIGGER_PATTERN.test(m.content.trim()) &&
+                triggerPattern.test(m.content.trim()) &&
                 (m.is_from_me ||
                   isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
             );
@@ -411,10 +432,11 @@ async function startMessageLoop(): Promise<void> {
 
           // Pull all messages since lastAgentTimestamp so non-trigger
           // context that accumulated between triggers is included.
+          const assistantName = group.assistantName ?? ASSISTANT_NAME;
           const allPending = getMessagesSince(
             chatJid,
             lastAgentTimestamp[chatJid] || '',
-            ASSISTANT_NAME,
+            assistantName,
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
@@ -476,6 +498,8 @@ async function main(): Promise<void> {
   logger.info('Database initialized');
   loadState();
   restoreRemoteControl();
+
+  tenantConfig = await loadTenantConfig();
 
   // Start credential proxy (containers route API calls through this)
   const proxyServer = await startCredentialProxy(
@@ -576,21 +600,96 @@ async function main(): Promise<void> {
     registeredGroups: () => registeredGroups,
   };
 
-  // Create and connect all registered channels.
-  // Each channel self-registers via the barrel import above.
-  // Factories return null when credentials are missing, so unconfigured channels are skipped.
-  for (const channelName of getRegisteredChannelNames()) {
-    const factory = getChannelFactory(channelName)!;
-    const channel = factory(channelOpts);
-    if (!channel) {
-      logger.warn(
-        { channel: channelName },
-        'Channel installed but credentials missing — skipping. Check .env or re-run the channel skill.',
-      );
-      continue;
+  // Create and connect channels.
+  // In multi-tenant mode, create per-tenant Telegram channels from tenants.json.
+  // In single-tenant mode, use the channel registry (self-registration at startup).
+  if (tenantConfig) {
+    // Multi-tenant mode: create per-tenant channels
+    for (const tenant of tenantConfig.tenants) {
+      const mcpConfig = generateMcpConfig(tenant);
+      const channel = createTenantTelegramChannel(tenant.botToken, {
+        ...channelOpts,
+        assistantName: tenant.assistantName,
+      }, tenant.id);
+
+      const jids: string[] = [];
+
+      // Register DM
+      const dmJid = `tg:${tenant.chats.dm}`;
+      jids.push(dmJid);
+      channel.addManagedJid(dmJid);
+      registerGroup(dmJid, {
+        name: `${tenant.name} DM`,
+        folder: tenant.groupFolder,
+        trigger: `@${tenant.assistantName}`,
+        added_at: new Date().toISOString(),
+        requiresTrigger: tenant.requiresTrigger ?? false,
+        isMain: tenant.isAdmin ?? false,
+        tenantId: tenant.id,
+        assistantName: tenant.assistantName,
+        isCustomerFacing: tenant.isCustomerFacing,
+        allowedTools: mcpConfig.allowedTools,
+      });
+
+      // Register operations group if configured
+      if (tenant.chats.operations) {
+        const ops = tenant.chats.operations;
+        if (typeof ops === 'object' && 'chatId' in ops) {
+          const opsJid = `tg:${ops.chatId}`;
+          jids.push(opsJid);
+          channel.addManagedJid(opsJid);
+          registerGroup(opsJid, {
+            name: `${tenant.name} Operations`,
+            folder: tenant.groupFolder,
+            trigger: `@${tenant.assistantName}`,
+            added_at: new Date().toISOString(),
+            requiresTrigger: false,
+            isMain: tenant.isAdmin ?? false,
+            tenantId: tenant.id,
+            assistantName: tenant.assistantName,
+            allowedTools: mcpConfig.allowedTools,
+          });
+        }
+      }
+
+      // Register leads group if configured
+      if (typeof tenant.chats.leads === 'string' && tenant.chats.leads) {
+        const leadsJid = `tg:${tenant.chats.leads}`;
+        jids.push(leadsJid);
+        channel.addManagedJid(leadsJid);
+        registerGroup(leadsJid, {
+          name: `${tenant.name} Leads`,
+          folder: tenant.groupFolder,
+          trigger: `@${tenant.assistantName}`,
+          added_at: new Date().toISOString(),
+          requiresTrigger: false,
+          isMain: tenant.isAdmin ?? false,
+          tenantId: tenant.id,
+          assistantName: tenant.assistantName,
+          allowedTools: mcpConfig.allowedTools,
+        });
+      }
+
+      folderToJids.set(tenant.groupFolder, jids);
+      folderToTenant.set(tenant.groupFolder, tenant);
+      channels.push(channel);
+      await channel.connect();
     }
-    channels.push(channel);
-    await channel.connect();
+  } else {
+    // Single-tenant fallback: existing channel factory logic
+    for (const channelName of getRegisteredChannelNames()) {
+      const factory = getChannelFactory(channelName)!;
+      const channel = factory(channelOpts);
+      if (!channel) {
+        logger.warn(
+          { channel: channelName },
+          'Channel installed but credentials missing — skipping. Check .env or re-run the channel skill.',
+        );
+        continue;
+      }
+      channels.push(channel);
+      await channel.connect();
+    }
   }
   if (channels.length === 0) {
     logger.fatal('No channels connected');
