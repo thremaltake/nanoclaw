@@ -6,10 +6,13 @@ import {
   deleteTask,
   getAllChats,
   getAllRegisteredGroups,
+  getAllSessions,
   getMessagesSince,
   getNewMessages,
+  getSession,
   getTaskById,
   setRegisteredGroup,
+  setSession,
   storeChatMetadata,
   storeMessage,
   updateTask,
@@ -480,5 +483,41 @@ describe('registered group isMain', () => {
     const group = groups['group@g.us'];
     expect(group).toBeDefined();
     expect(group.isMain).toBeUndefined();
+  });
+});
+
+// --- session management — composite keys ---
+
+describe('session management — composite keys', () => {
+  it('stores and retrieves session with simple key', () => {
+    setSession('main', 'session-abc');
+    expect(getSession('main')).toBe('session-abc');
+  });
+
+  it('stores and retrieves session with composite key like main:topic:lk', () => {
+    setSession('main:topic:lk', 'session-xyz');
+    expect(getSession('main:topic:lk')).toBe('session-xyz');
+  });
+
+  it('keeps simple and composite keys independent', () => {
+    setSession('main', 'session-simple');
+    setSession('main:topic:lk', 'session-composite');
+    setSession('main:lead:abc-123', 'session-lead');
+
+    expect(getSession('main')).toBe('session-simple');
+    expect(getSession('main:topic:lk')).toBe('session-composite');
+    expect(getSession('main:lead:abc-123')).toBe('session-lead');
+  });
+
+  it('getAllSessions returns all session types', () => {
+    setSession('main', 'session-1');
+    setSession('main:topic:lk', 'session-2');
+    setSession('main:lead:abc-123', 'session-3');
+
+    const all = getAllSessions();
+    expect(all['main']).toBe('session-1');
+    expect(all['main:topic:lk']).toBe('session-2');
+    expect(all['main:lead:abc-123']).toBe('session-3');
+    expect(Object.keys(all)).toHaveLength(3);
   });
 });

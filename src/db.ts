@@ -70,7 +70,7 @@ function createSchema(database: Database.Database): void {
       value TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
-      group_folder TEXT PRIMARY KEY,
+      session_key TEXT PRIMARY KEY,
       session_id TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS registered_groups (
@@ -83,6 +83,15 @@ function createSchema(database: Database.Database): void {
       requires_trigger INTEGER DEFAULT 1
     );
   `);
+
+  // Rename group_folder to session_key in sessions table (migration for existing DBs)
+  try {
+    database
+      .prepare('ALTER TABLE sessions RENAME COLUMN group_folder TO session_key')
+      .run();
+  } catch {
+    // Column already renamed or table created with new schema
+  }
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
   try {
@@ -513,26 +522,26 @@ export function setRouterState(key: string, value: string): void {
 
 // --- Session accessors ---
 
-export function getSession(groupFolder: string): string | undefined {
+export function getSession(sessionKey: string): string | undefined {
   const row = db
-    .prepare('SELECT session_id FROM sessions WHERE group_folder = ?')
-    .get(groupFolder) as { session_id: string } | undefined;
+    .prepare('SELECT session_id FROM sessions WHERE session_key = ?')
+    .get(sessionKey) as { session_id: string } | undefined;
   return row?.session_id;
 }
 
-export function setSession(groupFolder: string, sessionId: string): void {
+export function setSession(sessionKey: string, sessionId: string): void {
   db.prepare(
-    'INSERT OR REPLACE INTO sessions (group_folder, session_id) VALUES (?, ?)',
-  ).run(groupFolder, sessionId);
+    'INSERT OR REPLACE INTO sessions (session_key, session_id) VALUES (?, ?)',
+  ).run(sessionKey, sessionId);
 }
 
 export function getAllSessions(): Record<string, string> {
   const rows = db
-    .prepare('SELECT group_folder, session_id FROM sessions')
-    .all() as Array<{ group_folder: string; session_id: string }>;
+    .prepare('SELECT session_key, session_id FROM sessions')
+    .all() as Array<{ session_key: string; session_id: string }>;
   const result: Record<string, string> = {};
   for (const row of rows) {
-    result[row.group_folder] = row.session_id;
+    result[row.session_key] = row.session_id;
   }
   return result;
 }
