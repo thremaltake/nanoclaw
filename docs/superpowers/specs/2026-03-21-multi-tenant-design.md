@@ -19,7 +19,7 @@ Transform NanoClaw from a single-bot system into a multi-tenant broker platform.
 | main | @AHBrokerPilot_bot | Broker (admin) | work | DM + Operations group + Leads group |
 | personal | @PersonalBot | System (admin) | personal | DM |
 | caliort | @DinnerBros | Broker | caliort | DM (→ Operations + Leads groups later) |
-| lead-capture | TestChat | Customer-facing | work | Single customer chat |
+| lead-capture | TestChat | Customer-facing (lead collection + callback booking only) | work | Single customer chat |
 
 ### Key Architecture Decisions
 
@@ -75,7 +75,7 @@ Transform NanoClaw from a single-bot system into a multi-tenant broker platform.
       "groupFolder": "lead-capture",
       "dbSchema": "work",
       "isCustomerFacing": true,
-      "privateTools": ["deal-manager"],
+      "privateTools": ["deal-manager", "calendar"],
       "sharedTools": [],
       "contacts": { "owner": "env:TELEGRAM_CHAT_ID", "notifyOnError": true },
       "chats": { "dm": "env:TELEGRAM_LEAD_CHAT_ID" }
@@ -220,11 +220,11 @@ Each tenant gets a generated `.mcp.json` based on their `privateTools` + `shared
 Produces 7 MCP servers, each with `DB_SCHEMA=caliort` for schema-scoped tools.
 
 **Example -- lead-capture:**
-- privateTools: deal-manager
+- privateTools: deal-manager, calendar
 - sharedTools: (none)
 - DB_SCHEMA: "work"
 
-Produces 1 MCP server.
+Produces 2 MCP servers (deal creation + callback booking).
 
 ### MCP Template Registry
 
@@ -392,24 +392,47 @@ CREATE TABLE topic_mappings (
 
 | Layer | What | How |
 |-------|------|-----|
-| 1 | Conversation state machine | 6-state flow: welcome -> qualify -> collect_contact -> confirm -> create_deal -> handoff |
+| 1 | Conversation state machine | 7-state flow: welcome -> ask_needs -> ask_contact -> ask_callback -> confirm -> create_lead -> handoff |
 | 2 | Sandwich defense | Instructions before AND after user message block in prompt |
 | 3 | Input sanitizer | Jailbreak patterns, Unicode homoglyphs, length limits |
 | 4 | Structured output | Agent outputs JSON; only `response` field sent to customer |
-| 5 | Output validator | PII detection (TFN, BSB, account numbers), internal reference filter, ASIC compliance (no rates/guarantees) |
+| 5 | Output validator | PII detection (TFN, BSB, account numbers), internal reference filter, blocks any finance discussion (rates, terms, LVR, approval) |
 | 6 | Rate limiter | Token bucket: 30 messages/session, 1 per 2 seconds refill |
-| 7 | Compliance | ASIC disclaimers, Privacy Act notice, conversation logging (7-year retention) |
+| 7 | Compliance | Privacy Act notice, conversation logging (7-year retention) |
+
+### Purpose
+
+The lead-capture bot is a **lead collection tool only**. It does NOT discuss finance, rates, terms, lender options, or give any advice. Its sole job is to:
+1. Greet the customer warmly
+2. Find out what they need (asset type, rough amount)
+3. Collect contact details (name, phone, email)
+4. Optionally book a callback via calendar
+5. Create the lead in the system
+6. Hand off to a real broker
+
+If the customer asks finance questions ("What's the interest rate?", "Can I get approved?", "Which lender is best?"), the bot redirects: "Great question! That's exactly what our broker will cover with you. Let me get your details so they can call you back."
 
 ### State Machine
 
 ```
-WELCOME -> QUALIFY -> COLLECT_CONTACT -> CONFIRM -> CREATE_DEAL -> HANDOFF
+WELCOME -> ASK_NEEDS -> ASK_CONTACT -> ASK_CALLBACK -> CONFIRM -> CREATE_LEAD -> HANDOFF
 ```
+
+| State | Collects | Bot says |
+|-------|----------|----------|
+| WELCOME | Nothing | Greeting + privacy notice |
+| ASK_NEEDS | Asset type, rough amount, timeline | "What are you looking to finance?" |
+| ASK_CONTACT | Name, phone, email | "So we can have a broker get back to you..." |
+| ASK_CALLBACK | Preferred callback time (optional) | "When's a good time for a broker to call?" |
+| CONFIRM | Nothing (reviews collected data) | "Just to confirm: [summary]. Is that right?" |
+| CREATE_LEAD | Nothing (calls create_deal + optionally schedule_callback) | "All set! A broker will be in touch." |
+| HANDOFF | Follow-up questions only | Redirects finance questions, answers basic process questions |
 
 Each state has:
 - Expected input (what fields to collect)
 - System prompt (scoped to current step)
 - Validation (phone format, email format, etc.)
+- Finance-question redirect (any state)
 - Fallback if LLM goes off-script
 
 ### Fresh Sessions (No Resume)
@@ -422,32 +445,35 @@ Customer-facing bots start fresh Claude sessions each invocation. Conversation h
 {
   "id": "lead-capture",
   "isCustomerFacing": true,
-  "allowedTools": ["Read", "Glob", "Grep", "mcp__nanoclaw__*", "mcp__deal-manager__*"],
+  "privateTools": ["deal-manager", "calendar"],
+  "allowedTools": ["Read", "Glob", "Grep", "mcp__nanoclaw__*", "mcp__deal-manager__*", "mcp__calendar__*"],
   "networkMode": "host"
 }
 ```
 
-No Bash, no Write, no WebSearch, no WebFetch. Network access kept (needed for Claude API and Supabase).
+Tools: `deal-manager` (create lead) + `calendar` (book callback). No Bash, no Write, no WebSearch, no WebFetch, no lender tools, no email tools. Network access kept (needed for Claude API and Supabase).
 
 ### Australian Compliance
 
 **Welcome message (every new customer):**
 
 ```
-Hi! I'm [Bot Name], an AI assistant for [Business Name].
+Hi! I'm [Bot Name] from [Business Name].
 
-I can help you explore asset finance options for vehicles,
-equipment, and business loans.
+I'm here to connect you with one of our brokers who can
+help with vehicle, equipment, and business finance.
 
-Important:
-- This is general information only, not financial advice
-- A licensed broker will review your situation personally
-- We collect your name, phone, email and finance needs
-  to connect you with a broker
-- Privacy policy: [link]
+I'll just need a few quick details so the right broker
+can get back to you.
 
-What type of finance are you looking for?
+We collect your name, contact details, and what you're
+looking for to match you with a broker.
+Privacy policy: [link]
+
+What are you looking to finance?
 ```
+
+The bot does NOT discuss rates, terms, lender options, approval chances, or any financial details. It collects lead info and books callbacks only.
 
 **Compliance log table:**
 
@@ -498,7 +524,7 @@ Retained 7 years (ASIC/AML requirement).
 | LLM06 Excessive Agency | Low | Tool restrictions, draft-only policy |
 | LLM07 Prompt Leakage | Low | Input/output filters, no global CLAUDE.md for customer bots |
 | LLM08 Vector Weaknesses | Very Low | RAG uses verified docs, not customer-accessible |
-| LLM09 Misinformation | Low | ASIC compliance checks, structured output |
+| LLM09 Misinformation | Very Low (customer), Medium (broker) | Lead-capture bot doesn't discuss finance at all. Broker output has ASIC compliance checks. |
 | LLM10 Unbounded Consumption | Low | Rate limiter, container limits, global cap 25 |
 
 ### Data Isolation by Phase
