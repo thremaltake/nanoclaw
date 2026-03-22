@@ -335,6 +335,7 @@ async function runQuery(
   mcpServerPath: string,
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
+  projectMcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>,
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean }> {
   const stream = new MessageStream();
@@ -407,13 +408,23 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__deal-manager__*',
+        'mcp__work-email__*',
+        'mcp__lender-knowledge__*',
+        'mcp__lender-matching__*',
+        'mcp__bank-statement__*',
+        'mcp__calendar__*',
+        'mcp__personal-finance__*',
+        'mcp__personal-email__*',
+        'mcp__document-store__*'
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       settingSources: ['project', 'user'],
       mcpServers: {
+        ...projectMcpServers,
         nanoclaw: {
           command: 'node',
           args: [mcpServerPath],
@@ -488,6 +499,43 @@ async function main(): Promise<void> {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
+  // Load MCP servers from the group's .mcp.json (project-level config).
+  // The SDK's settingSources 'project' doesn't merge .mcp.json with explicit
+  // mcpServers — explicit takes precedence. So we read and merge manually.
+  // Env values like "${VAR}" are resolved from process.env since the SDK
+  // passes them literally (only Claude Code CLI resolves these automatically).
+  let projectMcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {};
+  const mcpJsonPath = '/workspace/group/.mcp.json';
+  try {
+    if (fs.existsSync(mcpJsonPath)) {
+      const mcpConfig = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf-8'));
+      if (mcpConfig.mcpServers) {
+        // Resolve ${VAR} references in env values from process.env
+        for (const [serverName, serverConfig] of Object.entries(mcpConfig.mcpServers)) {
+          const config = serverConfig as { command: string; args?: string[]; env?: Record<string, string> };
+          if (config.env) {
+            for (const [key, value] of Object.entries(config.env)) {
+              const match = value.match(/^\$\{(.+)\}$/);
+              if (match) {
+                const envVar = match[1];
+                const resolved = process.env[envVar];
+                if (resolved) {
+                  config.env[key] = resolved;
+                } else {
+                  log(`Warning: env var ${envVar} not set for MCP server ${serverName}`);
+                }
+              }
+            }
+          }
+        }
+        projectMcpServers = mcpConfig.mcpServers;
+        log(`Loaded ${Object.keys(projectMcpServers).length} MCP servers from .mcp.json: ${Object.keys(projectMcpServers).join(', ')}`);
+      }
+    }
+  } catch (err) {
+    log(`Failed to load .mcp.json: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   let sessionId = containerInput.sessionId;
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
@@ -511,7 +559,7 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, projectMcpServers, resumeAt);
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
