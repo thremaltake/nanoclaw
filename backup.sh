@@ -33,8 +33,8 @@ tar czf "$BACKUP_FILE" \
 
 rm -f /tmp/messages-backup.db
 
-# Keep 7 days locally
-find "$BACKUP_DIR" -name "nanoclaw-*.tar.gz" -mtime +7 -delete
+# Keep 14 days locally
+find "$BACKUP_DIR" -name "nanoclaw-*.tar.gz" -mtime +14 -delete
 
 SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
 echo "$(date): Backup completed: $BACKUP_FILE ($SIZE)"
