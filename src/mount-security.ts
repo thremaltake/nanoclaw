@@ -413,6 +413,7 @@ export function generateAllowlistTemplate(): string {
       'token',
     ],
     nonMainReadOnly: true,
+    projects: ['~/projects/my-app', '~/projects/my-api'],
   };
 
   return JSON.stringify(template, null, 2);

@@ -21,5 +21,9 @@
     "secret",
     "token"
   ],
-  "nonMainReadOnly": true
+  "nonMainReadOnly": true,
+  "projects": [
+    "~/projects/my-app",
+    "~/projects/my-api"
+  ]
 }

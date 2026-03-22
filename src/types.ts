@@ -16,6 +16,9 @@ export interface MountAllowlist {
   blockedPatterns: string[];
   // If true, non-main groups can only mount read-only regardless of config
   nonMainReadOnly: boolean;
+  // Project directories to mount read-only at /workspace/projects/{name}/
+  // Each entry is an absolute path; the directory basename is used as the mount name.
+  projects?: string[];
 }
 
 export interface AllowedRoot {
@@ -30,6 +33,7 @@ export interface AllowedRoot {
 export interface ContainerConfig {
   additionalMounts?: AdditionalMount[];
   timeout?: number; // Default: 300000 (5 minutes)
+  networkMode?: string; // Docker network mode: "bridge" (default), "host", "none", etc.
 }
 
 export interface RegisteredGroup {

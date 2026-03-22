@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -16,6 +17,7 @@ import {
   IDLE_TIMEOUT,
   TIMEZONE,
 } from './config.js';
+import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import {
@@ -26,8 +28,26 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
-import { validateAdditionalMounts } from './mount-security.js';
-import { RegisteredGroup } from './types.js';
+import {
+  loadMountAllowlist,
+  validateAdditionalMounts,
+} from './mount-security.js';
+import { ContainerConfig, RegisteredGroup } from './types.js';
+
+// Environment variables to pass through to containers for MCP server use.
+// Read from .env at startup (not loaded into host process.env).
+const MCP_ENV_KEYS = [
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'VOYAGE_API_KEY',
+  'HIMALAYA_CONFIG_PATH',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'GOOGLE_REFRESH_TOKEN',
+  'BSR_BASE_URL',
+  'BSR_AUTH_SECRET',
+];
+const mcpEnvVars = readEnvFile(MCP_ENV_KEYS);
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -54,6 +74,50 @@ interface VolumeMount {
   hostPath: string;
   containerPath: string;
   readonly: boolean;
+}
+
+/**
+ * Collect project directories from the mount allowlist and NANOCLAW_PROJECT_ROOT.
+ * Returns deduplicated entries as { hostPath, name } pairs.
+ */
+function collectProjectMounts(): Array<{ hostPath: string; name: string }> {
+  const seen = new Map<string, string>(); // realPath -> name
+
+  // Load projects from mount allowlist
+  const allowlist = loadMountAllowlist();
+  if (allowlist?.projects) {
+    for (const p of allowlist.projects) {
+      try {
+        const resolved = fs.realpathSync(p);
+        if (fs.statSync(resolved).isDirectory()) {
+          seen.set(resolved, path.basename(resolved));
+        }
+      } catch {
+        logger.warn({ path: p }, 'Project mount path does not exist, skipping');
+      }
+    }
+  }
+
+  // Backward compat: NANOCLAW_PROJECT_ROOT adds a single project
+  const legacyRoot = process.env.NANOCLAW_PROJECT_ROOT;
+  if (legacyRoot) {
+    try {
+      const resolved = fs.realpathSync(legacyRoot);
+      if (fs.statSync(resolved).isDirectory() && !seen.has(resolved)) {
+        seen.set(resolved, path.basename(resolved));
+      }
+    } catch {
+      logger.warn(
+        { path: legacyRoot },
+        'NANOCLAW_PROJECT_ROOT does not exist, skipping',
+      );
+    }
+  }
+
+  return Array.from(seen.entries()).map(([hostPath, name]) => ({
+    hostPath,
+    name,
+  }));
 }
 
 function buildVolumeMounts(
@@ -178,6 +242,7 @@ function buildVolumeMounts(
   // Copy agent-runner source into a per-group writable location so agents
   // can customize it (add tools, change behavior) without affecting other
   // groups. Recompiled on container startup via entrypoint.sh.
+  // Always sync so updates to the agent-runner propagate to all groups.
   const agentRunnerSrc = path.join(
     projectRoot,
     'container',
@@ -190,7 +255,7 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
+  if (fs.existsSync(agentRunnerSrc)) {
     fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
   }
   mounts.push({
@@ -198,6 +263,26 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: false,
   });
+
+  // Project directories from mount allowlist (read-only, .env shadowed)
+  for (const project of collectProjectMounts()) {
+    const containerPath = `/workspace/projects/${project.name}`;
+    mounts.push({
+      hostPath: project.hostPath,
+      containerPath,
+      readonly: true,
+    });
+
+    // Shadow .env so the agent cannot read project secrets
+    const envFile = path.join(project.hostPath, '.env');
+    if (fs.existsSync(envFile)) {
+      mounts.push({
+        hostPath: '/dev/null',
+        containerPath: `${containerPath}/.env`,
+        readonly: true,
+      });
+    }
+  }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
@@ -215,16 +300,46 @@ function buildVolumeMounts(
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  containerConfig?: ContainerConfig,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
+
+  // Prevent privilege escalation inside the container
+  args.push('--security-opt=no-new-privileges');
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-  // Route API traffic through the credential proxy (containers never see real secrets)
+  // Network mode: default to "bridge" so the container can reach the
+  // credential proxy and Claude API. Groups can set networkMode: "none"
+  // to fully isolate containers that don't need network access.
+  // On Linux (non-WSL), "host" is used instead of "bridge" so the
+  // container can reach the credential proxy without firewall issues.
+  // On macOS/WSL, Docker Desktop handles host gateway on bridge.
+  const requestedNetwork = containerConfig?.networkMode ?? 'bridge';
+  const isLinuxNative =
+    os.platform() === 'linux' &&
+    !fs.existsSync('/proc/sys/fs/binfmt_misc/WSLInterop');
+
+  let useHostNetwork = false;
+  if (requestedNetwork === 'none') {
+    args.push('--network', 'none');
+  } else if (isLinuxNative) {
+    // On native Linux, use host networking for proxy reachability
+    args.push('--network', 'host');
+    useHostNetwork = true;
+  } else {
+    // macOS / WSL: use the requested mode (bridge is Docker Desktop default)
+    args.push('--network', requestedNetwork);
+  }
+
+  // Route API traffic through the credential proxy (containers never see real secrets).
+  // With --network=none the proxy is unreachable, but we still set the env var
+  // so the agent runner doesn't fall back to direct API access.
+  const proxyHost = useHostNetwork ? 'localhost' : CONTAINER_HOST_GATEWAY;
   args.push(
     '-e',
-    `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
+    `ANTHROPIC_BASE_URL=http://${proxyHost}:${CREDENTIAL_PROXY_PORT}`,
   );
 
   // Mirror the host's auth method with a placeholder value.
@@ -238,8 +353,16 @@ function buildContainerArgs(
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
   }
 
-  // Runtime-specific args for host gateway resolution
-  args.push(...hostGatewayArgs());
+  // Pass MCP environment variables into the container so .mcp.json ${VAR}
+  // references resolve correctly inside the agent's process environment.
+  for (const [key, value] of Object.entries(mcpEnvVars)) {
+    args.push('-e', `${key}=${value}`);
+  }
+
+  // Runtime-specific args for host gateway resolution (skip with host networking or no networking)
+  if (!useHostNetwork && requestedNetwork !== 'none') {
+    args.push(...hostGatewayArgs());
+  }
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
@@ -278,7 +401,11 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const containerArgs = buildContainerArgs(
+    mounts,
+    containerName,
+    group.containerConfig,
+  );
 
   logger.debug(
     {
