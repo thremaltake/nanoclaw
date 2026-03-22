@@ -505,6 +505,94 @@ CREATE TABLE topic_context (
 
 ---
 
+## 5b. Email Automation
+
+### Overview
+
+Incoming emails to a broker's work address are automatically picked up by NanoClaw, classified by type, and routed to the appropriate workflow. Each broker can configure their email account in tenants.json.
+
+### How It Works
+
+```
+New email arrives at andry.harianto@motorest.com.au
+    |
+    +-- Scheduled task checks for unread emails (every 2-5 min during work hours)
+    |
+    +-- Agent classifies email type:
+    |   +-- HubSpot lead notification → CREATE_LEAD workflow
+    |   +-- Lender response/approval  → LENDER_UPDATE workflow
+    |   +-- Client reply              → CLIENT_REPLY workflow
+    |   +-- General business enquiry  → GENERAL workflow
+    |   +-- Spam/marketing            → IGNORE (or daily digest)
+    |
+    +-- Execute workflow + notify broker in appropriate topic
+```
+
+### Workflow Actions
+
+| Email Type | Detection | Automated Action | Notification |
+|------------|-----------|-----------------|--------------|
+| HubSpot lead | From hubspot.com, contains "New lead" | Call create_deal with extracted details | DM: "New lead: [Name], [Asset], [Amount]" + Create lead topic |
+| Lender response | From known lender domains, RE: existing deal | Match to deal via subject/reference, update deal notes | Lead topic: "[Lender] responded: [summary]" |
+| Lender approval | Contains "approved", "conditional approval" | Update deal stage, flag urgent | DM + Lead topic: "APPROVAL: [Lender] for [Customer]" |
+| Client reply | Match sender email to existing deal contact | Post to client's lead topic | Lead topic: "Client replied: [summary]" |
+| General enquiry | From unknown sender, appears to be a lead | Draft a lead entry, ask broker to confirm | DM: "Possible new lead via email: [summary]. Create deal?" |
+| Spam/marketing | Known marketing domains, unsubscribe links | Skip | Daily digest: "12 marketing emails skipped" |
+
+### Tenant Config
+
+```json
+{
+  "id": "main",
+  "email": {
+    "account": "env:HIMALAYA_WORK_ACCOUNT",
+    "checkInterval": "*/5 8-18 * * 1-5",
+    "autoProcess": true,
+    "knownLenderDomains": ["anz.com.au", "nab.com.au", "liberty.com.au"],
+    "hubspotEnabled": true
+  }
+}
+```
+
+### Per-Broker Email Scoping
+
+Each broker has their own email account and himalaya config. Caliort's email automation only sees Caliort's inbox. Uses the existing `himalayaAccount` field:
+
+```
+main broker     → himalayaAccount: "work"     → andry.harianto@motorest.com.au
+caliort broker  → himalayaAccount: "caliort"  → caliort@example.com
+```
+
+### Implementation
+
+This builds on the existing scheduled task system. The HubSpot Email Check task already runs every 5 minutes. Enhancement:
+1. Expand the email check to classify all unread emails (not just HubSpot)
+2. Add workflow rules to the broker's CLAUDE.md
+3. Route notifications to the correct forum topics via [ROUTE:tag] and [DEAL_ID:uuid]
+4. Mark processed emails as read
+
+The classification happens inside the agent container using the work-email MCP tool (get_unread_emails) + deal-manager (create_deal, update_deal). No new tools needed.
+
+### CLAUDE.md Email Rules (added to broker template)
+
+```markdown
+## Email Automation
+
+When checking emails, classify each unread email and take action:
+
+1. HubSpot lead notification → Call create_deal, send summary to DM
+2. Lender response → Match to deal, post to lead's topic with [DEAL_ID:uuid]
+3. Lender approval → Update deal stage to "approved", flag urgent, post to lead topic + DM
+4. Client reply → Match to deal by sender email, post to lead's topic
+5. General enquiry → Summarise in DM, ask if I should create a lead
+6. Marketing/spam → Skip, include in daily digest count
+
+Always include [ROUTE:calendarTasksAlerts] for urgent notifications.
+Always include [DEAL_ID:uuid] when the email relates to a known deal.
+```
+
+---
+
 ## 6. Customer-Facing Bot Protections
 
 ### 7-Layer Protection Stack
@@ -733,6 +821,8 @@ Structured security events via Pino logger:
 | Lead handler (per-lead sessions, context injection) | New: src/lead-handler.ts | 4h |
 | Sticky topic context | src/topic-routing.ts | 1h |
 | CLAUDE.md templates with routing rules | templates/broker-CLAUDE.md | 2h |
+| Email automation (classify + workflow) | templates/broker-CLAUDE.md, tenants.json email config | 3h |
+| Email-to-deal matching (lender responses, client replies) | CLAUDE.md rules + deal-manager MCP | 2h |
 
 ### P2 -- Customer-Facing Protections
 
