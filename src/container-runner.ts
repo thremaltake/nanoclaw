@@ -61,6 +61,10 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  // NEW fields:
+  allowedTools?: string[];       // Per-tenant tool whitelist
+  isCustomerFacing?: boolean;    // Skip global CLAUDE.md, enable output validation
+  tenantId?: string;             // For audit logging
 }
 
 export interface ContainerOutput {

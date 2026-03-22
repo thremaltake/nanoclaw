@@ -44,6 +44,12 @@ export interface RegisteredGroup {
   containerConfig?: ContainerConfig;
   requiresTrigger?: boolean; // Default: true for groups, false for solo chats
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
+  // NEW fields:
+  tenantId?: string;
+  assistantName?: string;
+  triggerPattern?: RegExp;      // Per-tenant trigger (not serialized to DB)
+  isCustomerFacing?: boolean;
+  allowedTools?: string[];
 }
 
 export interface NewMessage {
@@ -55,6 +61,11 @@ export interface NewMessage {
   timestamp: string;
   is_from_me?: boolean;
   is_bot_message?: boolean;
+}
+
+export interface MessageOptions {
+  topicId?: number;
+  createTopic?: string;  // Create topic with this name, send text as first message
 }
 
 export interface ScheduledTask {
@@ -86,7 +97,7 @@ export interface TaskRunLog {
 export interface Channel {
   name: string;
   connect(): Promise<void>;
-  sendMessage(jid: string, text: string): Promise<void>;
+  sendMessage(jid: string, text: string, options?: MessageOptions): Promise<void>;
   isConnected(): boolean;
   ownsJid(jid: string): boolean;
   disconnect(): Promise<void>;
