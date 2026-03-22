@@ -49,6 +49,33 @@ vi.mock('fs', async () => {
 // Mock mount-security
 vi.mock('./mount-security.js', () => ({
   validateAdditionalMounts: vi.fn(() => []),
+  loadMountAllowlist: vi.fn(() => null),
+}));
+
+// Mock container-runtime
+vi.mock('./container-runtime.js', () => ({
+  CONTAINER_HOST_GATEWAY: 'host.docker.internal',
+  CONTAINER_RUNTIME_BIN: 'docker',
+  hostGatewayArgs: vi.fn(() => []),
+  readonlyMountArgs: vi.fn((hostPath: string, containerPath: string) => ['-v', `${hostPath}:${containerPath}:ro`]),
+  stopContainer: vi.fn((name: string) => `docker stop ${name}`),
+}));
+
+// Mock credential-proxy
+vi.mock('./credential-proxy.js', () => ({
+  detectAuthMode: vi.fn(() => 'api-key'),
+  startCredentialProxy: vi.fn(),
+}));
+
+// Mock env
+vi.mock('./env.js', () => ({
+  readEnvFile: vi.fn(() => ({})),
+}));
+
+// Mock group-folder
+vi.mock('./group-folder.js', () => ({
+  resolveGroupFolderPath: vi.fn((folder: string) => `/tmp/nanoclaw-test-groups/${folder}`),
+  resolveGroupIpcPath: vi.fn((folder: string) => `/tmp/nanoclaw-test-data/ipc/${folder}`),
 }));
 
 // Create a controllable fake ChildProcess
@@ -86,7 +113,7 @@ vi.mock('child_process', async () => {
   };
 });
 
-import { runContainerAgent, ContainerOutput } from './container-runner.js';
+import { runContainerAgent, buildContainerArgs, ContainerOutput } from './container-runner.js';
 import type { RegisteredGroup } from './types.js';
 
 const testGroup: RegisteredGroup = {
@@ -206,5 +233,31 @@ describe('container-runner timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
+  });
+});
+
+describe('container hardening', () => {
+  it('includes --cap-drop=ALL in container args', () => {
+    const args = buildContainerArgs([], 'test-container');
+    expect(args).toContain('--cap-drop=ALL');
+  });
+
+  it('includes --pids-limit 100', () => {
+    const args = buildContainerArgs([], 'test-container');
+    const idx = args.indexOf('--pids-limit');
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx + 1]).toBe('100');
+  });
+
+  it('sets --memory when memoryLimit provided', () => {
+    const args = buildContainerArgs([], 'test', undefined, '1024m');
+    const idx = args.indexOf('--memory');
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx + 1]).toBe('1024m');
+  });
+
+  it('omits --memory when not provided', () => {
+    const args = buildContainerArgs([], 'test');
+    expect(args).not.toContain('--memory');
   });
 });

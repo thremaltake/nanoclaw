@@ -27,6 +27,7 @@ interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  allowedTools?: string[];
 }
 
 interface ContainerOutput {
@@ -390,6 +391,21 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
+  // Per-tenant allowedTools (fall back to hardcoded list for backward compat)
+  const allowedTools = containerInput.allowedTools ?? [
+    'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
+    'WebSearch', 'WebFetch',
+    'Task', 'TaskOutput', 'TaskStop',
+    'TeamCreate', 'TeamDelete', 'SendMessage',
+    'TodoWrite', 'ToolSearch', 'Skill', 'NotebookEdit',
+    'mcp__nanoclaw__*',
+    'mcp__deal-manager__*', 'mcp__work-email__*',
+    'mcp__lender-knowledge__*', 'mcp__lender-matching__*',
+    'mcp__bank-statement__*', 'mcp__calendar__*',
+    'mcp__personal-finance__*', 'mcp__personal-email__*',
+    'mcp__document-store__*',
+  ];
+
   for await (const message of query({
     prompt: stream,
     options: {
@@ -400,25 +416,7 @@ async function runQuery(
       systemPrompt: globalClaudeMd
         ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
         : undefined,
-      allowedTools: [
-        'Bash',
-        'Read', 'Write', 'Edit', 'Glob', 'Grep',
-        'WebSearch', 'WebFetch',
-        'Task', 'TaskOutput', 'TaskStop',
-        'TeamCreate', 'TeamDelete', 'SendMessage',
-        'TodoWrite', 'ToolSearch', 'Skill',
-        'NotebookEdit',
-        'mcp__nanoclaw__*',
-        'mcp__deal-manager__*',
-        'mcp__work-email__*',
-        'mcp__lender-knowledge__*',
-        'mcp__lender-matching__*',
-        'mcp__bank-statement__*',
-        'mcp__calendar__*',
-        'mcp__personal-finance__*',
-        'mcp__personal-email__*',
-        'mcp__document-store__*'
-      ],
+      allowedTools,
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,

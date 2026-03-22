@@ -62,9 +62,9 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   // NEW fields:
-  allowedTools?: string[];       // Per-tenant tool whitelist
-  isCustomerFacing?: boolean;    // Skip global CLAUDE.md, enable output validation
-  tenantId?: string;             // For audit logging
+  allowedTools?: string[]; // Per-tenant tool whitelist
+  isCustomerFacing?: boolean; // Skip global CLAUDE.md, enable output validation
+  tenantId?: string; // For audit logging
 }
 
 export interface ContainerOutput {
@@ -301,15 +301,18 @@ function buildVolumeMounts(
   return mounts;
 }
 
-function buildContainerArgs(
+export function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   containerConfig?: ContainerConfig,
+  memoryLimit?: string,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Prevent privilege escalation inside the container
   args.push('--security-opt=no-new-privileges');
+  args.push('--cap-drop=ALL');
+  args.push('--pids-limit', '100');
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
@@ -376,6 +379,10 @@ function buildContainerArgs(
   if (hostUid != null && hostUid !== 0 && hostUid !== 1000) {
     args.push('--user', `${hostUid}:${hostGid}`);
     args.push('-e', 'HOME=/home/node');
+  }
+
+  if (memoryLimit) {
+    args.push('--memory', memoryLimit);
   }
 
   for (const mount of mounts) {
