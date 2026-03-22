@@ -178,19 +178,111 @@ NanoClaw starts
   +-- Start IPC watcher
 ```
 
-### Queue by Folder (Revised)
+### Queue by Folder with Per-Topic Parallelism
 
-All chats mapping to the same group folder serialize through one queue entry:
+Topics can run in **shared** mode (queued together, share memory) or **independent** mode (parallel, own session). Configured per-topic or auto-detected from tool mapping.
 
 ```
-GroupQueue keys:
-  "main"         <- tg:DM + tg:OpsGroup + tg:LeadsGroup
-  "personal"     <- tg:PersonalDM
-  "caliort"      <- tg:CaliortDM
-  "lead-capture" <- tg:LeadChat
+GroupQueue keys for "main" broker:
+
+Shared session (queued together):
+  "main"              <- DM + Calendar/Tasks/Alerts (share memory)
+
+Independent sessions (run in parallel):
+  "main:topic:lk"     <- Lender Knowledge
+  "main:topic:bs"     <- Bank Statements
+  "main:topic:lm"     <- Lender Matching
+  "main:lead:{dealId}" <- Per-customer lead topics (always independent)
+
+Other brokers:
+  "personal"           <- PersonalDM
+  "caliort"            <- CaliortDM
+  "lead-capture"       <- LeadChat (per-customer sessions)
 ```
 
-Messages from different chats arriving simultaneously get batched into one prompt with chat/topic context. The agent processes all and routes responses via [ROUTE:tag].
+All queues across different brokers and independent topics run in parallel. Queuing only happens within a shared session (e.g., DM waits for a Calendar/Tasks alert to finish, but Bank Statements runs independently).
+
+**Auto-detection rule:** Topics mapped to a specific MCP tool category (lender-knowledge, bank-statement, lender-matching) automatically run as independent. General-purpose topics (Calendar/Tasks/Alerts) stay shared with DM. Override via tenant config:
+
+```json
+{
+  "chats": {
+    "operations": {
+      "chatId": "env:TELEGRAM_MAIN_OPS_GROUP_ID",
+      "topics": {
+        "calendar-tasks-alerts": { "name": "Calendar / Tasks / Alerts", "session": "shared" },
+        "lender-knowledge":      { "name": "Lender Knowledge",         "session": "independent" },
+        "bank-statements":       { "name": "Bank Statements",          "session": "independent" },
+        "lender-matching":       { "name": "Lender Matching",          "session": "independent" }
+      }
+    }
+  }
+}
+```
+
+### Priority Queue for Shared Sessions
+
+When DM and Calendar/Tasks/Alerts share a queue, messages are prioritized:
+
+```
+Priority 1 (highest): DM messages (broker is actively typing)
+Priority 2:           Topic replies (broker replied in a topic)
+Priority 3 (lowest):  Scheduled tasks (alerts, briefings -- can wait)
+```
+
+If a scheduled briefing is processing and you send a DM message, the DM queues but jumps ahead of any other pending scheduled tasks.
+
+### Cross-Topic Context Sharing
+
+Independent topics can't see each other's conversation history, but they share data through a context table:
+
+```sql
+CREATE TABLE topic_context (
+  group_folder TEXT NOT NULL,
+  topic_key TEXT NOT NULL,
+  context_type TEXT NOT NULL,
+  deal_id TEXT,
+  summary TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (group_folder, topic_key, context_type)
+);
+```
+
+When an independent topic completes a task, the agent writes a short summary:
+
+```
+topic_key: "main:topic:bs"
+context_type: "bank_analysis"
+deal_id: "abc-123"
+summary: "Analysed John Smith's bank statement. Monthly income: $8,200.
+          Living expenses: $3,100. Surplus: $5,100. 3 NSF fees in 6 months."
+```
+
+Other topics and the shared DM session can read these summaries. When you say in DM "based on the bank statement analysis, draft an email to ANZ", the system detects the cross-reference, fetches the summary, and injects it:
+
+```
+[CONTEXT FROM OTHER TOPICS]
+Bank Statements (2 min ago): Analysed John Smith's bank statement.
+Monthly income: $8,200. Living expenses: $3,100. Surplus: $5,100.
+3 NSF fees in last 6 months.
+[END CONTEXT]
+
+User: Based on the bank statement analysis, draft an email to ANZ...
+```
+
+The DM agent didn't "see" the bank statement conversation, but it has the key facts.
+
+### Session Warming for Independent Topics
+
+Independent topics start fresh but are pre-loaded with:
+1. The group's CLAUDE.md (memory and instructions)
+2. Topic routing rules for this specific topic
+3. Recent entries from `topic_context` (what other topics have been doing)
+4. Last 3 messages in this topic (reconstructed from database)
+
+This makes independent topics feel continuous rather than cold-start.
+
+Messages from shared-session chats arriving simultaneously get batched into one prompt with chat/topic context. The agent processes all and routes responses via [ROUTE:tag].
 
 ### Group Registration in Database
 
@@ -323,30 +415,45 @@ Agent response arrives
 
 3. **Incoming message context.** When a user replies inside a specific topic, the message_thread_id is included in the prompt context so the agent knows where to respond.
 
+4. **Cross-topic context summaries.** When an independent topic completes a task, it writes a summary to `topic_context`. Other sessions (including shared DM) can reference these. Enables "based on the bank statement analysis, draft an email" from DM even though the analysis ran in a parallel session.
+
 ### Session Management (Revised)
 
-Session resolver determines which Claude session to use:
+Session resolver determines which Claude session and queue to use:
 
 ```
-Message arrives from chatJid
+Message arrives from chatJid + topicId
     |
     +-- Is it a leads group topic?
     |   +-- Reverse-lookup dealId from topic_mappings
     |   +-- Session key: "{folder}:lead:{dealId}"
+    |   +-- Queue key: "{folder}:lead:{dealId}" (always independent)
     |   +-- Inject deal context preamble
     |
     +-- Is it a customer-facing chat?
     |   +-- Session key: "{folder}:customer:{senderId}"
+    |   +-- Queue key: "{folder}:customer:{senderId}" (always independent)
     |   +-- Fresh session each invocation (no resume)
     |
-    +-- Otherwise (DM, operations topics)
+    +-- Is it an independent operations topic?
+    |   +-- Session key: "{folder}:topic:{topicKey}"
+    |   +-- Queue key: "{folder}:topic:{topicKey}" (parallel)
+    |   +-- Pre-load: CLAUDE.md + topic_context + last 3 messages
+    |
+    +-- Otherwise (DM, shared operations topics)
         +-- Session key: "{folder}"
+        +-- Queue key: "{folder}" (shared, queued)
+        +-- Inject cross-topic context summaries if referenced
         +-- Resume existing session
 ```
 
-**Per-lead sessions** ensure Customer A's financial data is never in Customer B's context window. The sessions table stores composite keys: `main:lead:abc-123`.
+**Per-lead sessions** ensure Customer A's financial data is never in Customer B's context window.
 
-**Customer-facing sessions** use fresh sessions each invocation (no resume). The state machine controls what context the agent sees by reconstructing conversation from the database. This prevents hallucination from "remembering" rolled-back states.
+**Customer-facing sessions** use fresh sessions each invocation (no resume). The state machine stays authoritative.
+
+**Independent topic sessions** run in parallel with the shared session and with each other. They share data via `topic_context` table, not conversation history.
+
+**Shared session** handles DM + general-purpose topics. Cross-topic references resolved by injecting summaries from `topic_context`.
 
 ### Lead Topic Lifecycle
 
@@ -369,9 +476,10 @@ Settled/Lost
     +-- Preserve session data (compliance)
 ```
 
-### Database Addition
+### Database Additions
 
 ```sql
+-- Maps Telegram forum topics to deals for routing
 CREATE TABLE topic_mappings (
   group_folder TEXT NOT NULL,
   chat_jid TEXT NOT NULL,
@@ -381,6 +489,17 @@ CREATE TABLE topic_mappings (
   status TEXT DEFAULT 'active',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (chat_jid, topic_id)
+);
+
+-- Shares context between independent topic sessions
+CREATE TABLE topic_context (
+  group_folder TEXT NOT NULL,
+  topic_key TEXT NOT NULL,
+  context_type TEXT NOT NULL,
+  deal_id TEXT,
+  summary TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (group_folder, topic_key, context_type)
 );
 ```
 
@@ -589,8 +708,9 @@ Structured security events via Pino logger:
 |------|-------|--------|
 | Create tenants.json + loader (tenant-config.ts) | New: src/tenant-config.ts | 4h |
 | Multi-bot TelegramChannel (per-tenant) | src/channels/telegram.ts, src/index.ts | 6h |
-| Queue by folder (not chatJid) | src/group-queue.ts, src/index.ts | 3h |
-| Session resolver (composite keys) | src/index.ts, src/db.ts | 3h |
+| Queue by folder with per-topic parallelism | src/group-queue.ts, src/index.ts | 4h |
+| Session resolver (composite keys + topic independence) | src/index.ts, src/db.ts | 4h |
+| Priority queue (DM > topic reply > scheduled task) | src/group-queue.ts | 2h |
 | .mcp.json generator from tenant config | New: src/mcp-config-generator.ts | 3h |
 | allowedTools in ContainerInput | src/container-runner.ts, src/types.ts, container/agent-runner/src/index.ts | 2h |
 | Container hardening (--cap-drop, --pids-limit, --memory) | src/container-runner.ts | 1h |
@@ -606,6 +726,9 @@ Structured security events via Pino logger:
 | Message context (chat type, topic name, topicId) | src/router.ts | 2h |
 | send_message with topicId + createTopic | container/agent-runner/src/ipc-mcp-stdio.ts, src/ipc.ts | 3h |
 | topic_mappings table | src/db.ts | 1h |
+| topic_context table + cross-topic sharing | src/db.ts, container/agent-runner/src/index.ts | 3h |
+| Session warming for independent topics | src/container-runner.ts, container/agent-runner/src/index.ts | 2h |
+| Smart session bridging (cross-topic reference injection) | src/index.ts, src/router.ts | 2h |
 | Deal ID injection backstop | container/agent-runner/src/index.ts | 2h |
 | Lead handler (per-lead sessions, context injection) | New: src/lead-handler.ts | 4h |
 | Sticky topic context | src/topic-routing.ts | 1h |
@@ -662,7 +785,7 @@ Issues found during cross-section review and their resolutions:
 |----------|------------|
 | networkMode "none" breaks lead-capture (needs Claude API + Supabase) | Keep "host" network for all. Rely on other 6 protection layers. Air-gapped option deferred to v2. |
 | Three session scoping models incompatible | Session resolver with composite keys: "folder", "folder:lead:dealId", "folder:customer:senderId" |
-| Multiple chats to same folder causes queue/IPC race | Queue by group folder, not chatJid. Serialize all work for a folder. |
+| Multiple chats to same folder causes queue/IPC race | Queue by group folder with per-topic parallelism. Shared topics queue together, independent topics (tool-mapped) run in parallel with own sessions. Cross-topic data shared via topic_context table. |
 | 512MB memory insufficient for 9 MCP servers | Tiered: 1024m broker, 768m personal, 256m customer-facing |
 | .mcp.json generation overwrites hand-crafted configs | Generate to data/sessions/{folder}/. Merge with group folder overrides. |
 | State machine vs session history divergence | Fresh sessions for customer-facing (no resume). State machine stays authoritative. |
