@@ -433,6 +433,66 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
+  // --- Per-topic parallelism ---
+
+  describe('GroupQueue — per-topic parallelism', () => {
+    it('runs different queue keys in parallel', async () => {
+      let running = 0;
+      let maxConcurrent = 0;
+      queue.setProcessMessagesFn(async () => {
+        running++;
+        maxConcurrent = Math.max(maxConcurrent, running);
+        await new Promise((r) => setTimeout(r, 100));
+        running--;
+        return true;
+      });
+      queue.enqueueMessageCheck('main');
+      queue.enqueueMessageCheck('main:topic:lk');
+      await vi.advanceTimersByTimeAsync(200);
+      expect(maxConcurrent).toBe(2);
+    });
+
+    it('serializes within same queue key', async () => {
+      let running = 0;
+      let maxConcurrent = 0;
+      queue.setProcessMessagesFn(async () => {
+        running++;
+        maxConcurrent = Math.max(maxConcurrent, running);
+        await new Promise((r) => setTimeout(r, 100));
+        running--;
+        return true;
+      });
+      queue.enqueueMessageCheck('main');
+      queue.enqueueMessageCheck('main');
+      await vi.advanceTimersByTimeAsync(300);
+      expect(maxConcurrent).toBe(1);
+    });
+  });
+
+  // --- Priority ordering ---
+
+  describe('GroupQueue — priority ordering', () => {
+    it('processes DM (priority 1) before scheduled task (priority 3)', async () => {
+      const processedPriorities: number[] = [];
+      let callCount = 0;
+      queue.setProcessMessagesFn(async () => {
+        callCount++;
+        if (callCount === 1) {
+          queue.enqueueWithPriority('main', 3); // scheduled task
+          queue.enqueueWithPriority('main', 1); // DM — should jump ahead
+        }
+        if (callCount === 2) processedPriorities.push(1);
+        if (callCount === 3) processedPriorities.push(3);
+        await new Promise((r) => setTimeout(r, 50));
+        return true;
+      });
+      queue.enqueueWithPriority('main', 2); // initial trigger
+      await vi.advanceTimersByTimeAsync(500);
+      expect(callCount).toBe(3);
+      expect(processedPriorities).toEqual([1, 3]);
+    });
+  });
+
   it('preempts when idle arrives with pending tasks', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;

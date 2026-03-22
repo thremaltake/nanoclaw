@@ -21,6 +21,7 @@ interface GroupState {
   runningTaskId: string | null;
   pendingMessages: boolean;
   pendingTasks: QueuedTask[];
+  pendingWithPriority: Array<{ priority: number }>;
   process: ChildProcess | null;
   containerName: string | null;
   groupFolder: string | null;
@@ -45,6 +46,7 @@ export class GroupQueue {
         runningTaskId: null,
         pendingMessages: false,
         pendingTasks: [],
+        pendingWithPriority: [],
         process: null,
         containerName: null,
         groupFolder: null,
@@ -84,6 +86,31 @@ export class GroupQueue {
 
     this.runForGroup(groupJid, 'messages').catch((err) =>
       logger.error({ groupJid, err }, 'Unhandled error in runForGroup'),
+    );
+  }
+
+  enqueueWithPriority(queueKey: string, priority: number): void {
+    if (this.shuttingDown) return;
+    const state = this.getGroup(queueKey);
+
+    if (state.active) {
+      state.pendingWithPriority.push({ priority });
+      state.pendingMessages = true;
+      logger.debug({ queueKey, priority }, 'Container active, priority message queued');
+      return;
+    }
+
+    if (this.activeCount >= MAX_CONCURRENT_CONTAINERS) {
+      state.pendingWithPriority.push({ priority });
+      state.pendingMessages = true;
+      if (!this.waitingGroups.includes(queueKey)) {
+        this.waitingGroups.push(queueKey);
+      }
+      return;
+    }
+
+    this.runForGroup(queueKey, 'messages').catch((err) =>
+      logger.error({ queueKey, err }, 'Unhandled error in runForGroup'),
     );
   }
 
@@ -288,7 +315,21 @@ export class GroupQueue {
 
     const state = this.getGroup(groupJid);
 
-    // Tasks first (they won't be re-discovered from SQLite like messages)
+    // Priority queue first (DMs jump ahead of scheduled tasks)
+    if (state.pendingWithPriority.length > 0) {
+      state.pendingWithPriority.sort((a, b) => a.priority - b.priority);
+      state.pendingWithPriority.shift(); // consume next
+      state.pendingMessages = state.pendingWithPriority.length > 0;
+      this.runForGroup(groupJid, 'drain').catch((err) =>
+        logger.error(
+          { groupJid, err },
+          'Unhandled error in runForGroup (priority drain)',
+        ),
+      );
+      return;
+    }
+
+    // Tasks next (they won't be re-discovered from SQLite like messages)
     if (state.pendingTasks.length > 0) {
       const task = state.pendingTasks.shift()!;
       this.runTask(groupJid, task).catch((err) =>
