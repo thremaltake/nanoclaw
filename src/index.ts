@@ -59,8 +59,16 @@ import {
   shouldDropMessage,
 } from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
-import { loadTenantConfig, findTenantByFolder, type TenantConfig, type ResolvedTenant } from './tenant-config.js';
-import { generateMcpConfig, deriveMemoryLimit } from './mcp-config-generator.js';
+import {
+  loadTenantConfig,
+  findTenantByFolder,
+  type TenantConfig,
+  type ResolvedTenant,
+} from './tenant-config.js';
+import {
+  generateMcpConfig,
+  deriveMemoryLimit,
+} from './mcp-config-generator.js';
 import { createTenantTelegramChannel } from './channels/telegram.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
@@ -181,7 +189,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
     const allowlistCfg = loadSenderAllowlist();
-    const triggerPattern = group.triggerPattern ??
+    const triggerPattern =
+      group.triggerPattern ??
       new RegExp(`^@${escapeRegex(assistantName)}\\b`, 'i');
     const hasTrigger = missedMessages.some(
       (m) =>
@@ -418,7 +427,8 @@ async function startMessageLoop(): Promise<void> {
           // context when a trigger eventually arrives.
           if (needsTrigger) {
             const assistantName = group.assistantName ?? ASSISTANT_NAME;
-            const triggerPattern = group.triggerPattern ??
+            const triggerPattern =
+              group.triggerPattern ??
               new RegExp(`^@${escapeRegex(assistantName)}\\b`, 'i');
             const allowlistCfg = loadSenderAllowlist();
             const hasTrigger = groupMessages.some(
@@ -476,7 +486,7 @@ async function startMessageLoop(): Promise<void> {
 function recoverPendingMessages(): void {
   for (const [chatJid, group] of Object.entries(registeredGroups)) {
     const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
-    const pending = getMessagesSince(chatJid, sinceTimestamp, ASSISTANT_NAME);
+    const pending = getMessagesSince(chatJid, sinceTimestamp, group.assistantName ?? ASSISTANT_NAME);
     if (pending.length > 0) {
       logger.info(
         { group: group.name, pendingCount: pending.length },
@@ -607,10 +617,14 @@ async function main(): Promise<void> {
     // Multi-tenant mode: create per-tenant channels
     for (const tenant of tenantConfig.tenants) {
       const mcpConfig = generateMcpConfig(tenant);
-      const channel = createTenantTelegramChannel(tenant.botToken, {
-        ...channelOpts,
-        assistantName: tenant.assistantName,
-      }, tenant.id);
+      const channel = createTenantTelegramChannel(
+        tenant.botToken,
+        {
+          ...channelOpts,
+          assistantName: tenant.assistantName,
+        },
+        tenant.id,
+      );
 
       const jids: string[] = [];
 
@@ -647,6 +661,7 @@ async function main(): Promise<void> {
             isMain: tenant.isAdmin ?? false,
             tenantId: tenant.id,
             assistantName: tenant.assistantName,
+            isCustomerFacing: tenant.isCustomerFacing,
             allowedTools: mcpConfig.allowedTools,
           });
         }
@@ -666,6 +681,7 @@ async function main(): Promise<void> {
           isMain: tenant.isAdmin ?? false,
           tenantId: tenant.id,
           assistantName: tenant.assistantName,
+          isCustomerFacing: tenant.isCustomerFacing,
           allowedTools: mcpConfig.allowedTools,
         });
       }
