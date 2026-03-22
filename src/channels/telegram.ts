@@ -7,6 +7,7 @@ import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
+  MessageOptions,
   OnChatMetadata,
   OnInboundMessage,
   RegisteredGroup,
@@ -16,6 +17,8 @@ export interface TelegramChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
+  assistantName?: string;
+  triggerPattern?: RegExp;
 }
 
 /**
@@ -42,15 +45,25 @@ async function sendTelegramMessage(
 }
 
 export class TelegramChannel implements Channel {
-  name = 'telegram';
+  name: string;
 
   private bot: Bot | null = null;
   private opts: TelegramChannelOpts;
   private botToken: string;
+  private managedJids = new Set<string>();
 
-  constructor(botToken: string, opts: TelegramChannelOpts) {
+  constructor(botToken: string, opts: TelegramChannelOpts, instanceName?: string) {
     this.botToken = botToken;
     this.opts = opts;
+    this.name = instanceName ?? 'telegram';
+  }
+
+  private get assistantName(): string {
+    return this.opts.assistantName ?? ASSISTANT_NAME;
+  }
+
+  private get triggerPattern(): RegExp {
+    return this.opts.triggerPattern ?? TRIGGER_PATTERN;
   }
 
   async connect(): Promise<void> {
@@ -80,7 +93,7 @@ export class TelegramChannel implements Channel {
 
     // Command to check bot status
     this.bot.command('ping', (ctx) => {
-      ctx.reply(`${ASSISTANT_NAME} is online.`);
+      ctx.reply(`${this.assistantName} is online.`);
     });
 
     // Telegram bot commands handled above — skip them in the general handler
@@ -125,8 +138,8 @@ export class TelegramChannel implements Channel {
           }
           return false;
         });
-        if (isBotMentioned && !TRIGGER_PATTERN.test(content)) {
-          content = `@${ASSISTANT_NAME} ${content}`;
+        if (isBotMentioned && !this.triggerPattern.test(content)) {
+          content = `@${this.assistantName} ${content}`;
         }
       }
 
@@ -240,7 +253,7 @@ export class TelegramChannel implements Channel {
     });
   }
 
-  async sendMessage(jid: string, text: string): Promise<void> {
+  async sendMessage(jid: string, text: string, options?: MessageOptions): Promise<void> {
     if (!this.bot) {
       logger.warn('Telegram bot not initialized');
       return;
@@ -248,17 +261,19 @@ export class TelegramChannel implements Channel {
 
     try {
       const numericId = jid.replace(/^tg:/, '');
+      const sendOpts = options?.topicId ? { message_thread_id: options.topicId } : {};
 
       // Telegram has a 4096 character limit per message — split if needed
       const MAX_LENGTH = 4096;
       if (text.length <= MAX_LENGTH) {
-        await sendTelegramMessage(this.bot.api, numericId, text);
+        await sendTelegramMessage(this.bot.api, numericId, text, sendOpts);
       } else {
         for (let i = 0; i < text.length; i += MAX_LENGTH) {
           await sendTelegramMessage(
             this.bot.api,
             numericId,
             text.slice(i, i + MAX_LENGTH),
+            sendOpts,
           );
         }
       }
@@ -272,8 +287,13 @@ export class TelegramChannel implements Channel {
     return this.bot !== null;
   }
 
+  addManagedJid(jid: string): void {
+    this.managedJids.add(jid);
+  }
+
   ownsJid(jid: string): boolean {
-    return jid.startsWith('tg:');
+    if (this.managedJids.size > 0) return this.managedJids.has(jid);
+    return jid.startsWith('tg:');  // backward compat for single-tenant
   }
 
   async disconnect(): Promise<void> {
@@ -293,6 +313,14 @@ export class TelegramChannel implements Channel {
       logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
     }
   }
+}
+
+export function createTenantTelegramChannel(
+  botToken: string,
+  opts: TelegramChannelOpts,
+  tenantId: string,
+): TelegramChannel {
+  return new TelegramChannel(botToken, opts, `telegram:${tenantId}`);
 }
 
 registerChannel('telegram', (opts: ChannelOpts) => {

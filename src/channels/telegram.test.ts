@@ -69,7 +69,7 @@ vi.mock('grammy', () => ({
   },
 }));
 
-import { TelegramChannel, TelegramChannelOpts } from './telegram.js';
+import { TelegramChannel, TelegramChannelOpts, createTenantTelegramChannel } from './telegram.js';
 
 // --- Test helpers ---
 
@@ -945,5 +945,38 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       expect(channel.name).toBe('telegram');
     });
+  });
+});
+
+// --- Multi-tenant tests ---
+
+const baseOpts = (): TelegramChannelOpts => createTestOpts();
+
+describe('TelegramChannel — multi-tenant', () => {
+  it('uses per-tenant instance name', () => {
+    const channel = new TelegramChannel('token', baseOpts(), 'telegram:main');
+    expect(channel.name).toBe('telegram:main');
+  });
+
+  it('defaults name to telegram when not provided', () => {
+    const channel = new TelegramChannel('token', baseOpts());
+    expect(channel.name).toBe('telegram');
+  });
+
+  it('routes messages only to managed JIDs when populated', () => {
+    const channel = new TelegramChannel('token', baseOpts(), 'telegram:main');
+    channel.addManagedJid('tg:123');
+    expect(channel.ownsJid('tg:123')).toBe(true);
+    expect(channel.ownsJid('tg:456')).toBe(false);
+  });
+
+  it('falls back to all tg: JIDs when managedJids empty', () => {
+    const channel = new TelegramChannel('token', baseOpts());
+    expect(channel.ownsJid('tg:anything')).toBe(true);
+  });
+
+  it('createTenantTelegramChannel produces correct instance name', () => {
+    const channel = createTenantTelegramChannel('token', baseOpts(), 'acme');
+    expect(channel.name).toBe('telegram:acme');
   });
 });
