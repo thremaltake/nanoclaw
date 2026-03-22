@@ -1,0 +1,59 @@
+{
+  "defaults": {
+    "timezone": "Australia/Sydney",
+    "briefingTime": "08:30",
+    "quietHoursStart": 20,
+    "quietHoursEnd": 7
+  },
+  "brokerDefaults": {
+    "jidPrefix": "tg",
+    "isAdmin": false,
+    "isCustomerFacing": false,
+    "requiresTrigger": false,
+    "status": "active",
+    "privateTools": ["deal-manager", "work-email", "calendar", "document-store"],
+    "sharedTools": ["lender-knowledge", "lender-matching", "bank-statement"],
+    "ai": { "mode": "platform" }
+  },
+  "system": [
+    {
+      "id": "personal",
+      "name": "Personal Assistant",
+      "assistantName": "Personal",
+      "botToken": "env:TELEGRAM_PERSONAL_BOT_TOKEN",
+      "groupFolder": "personal",
+      "dbSchema": "personal",
+      "isAdmin": true,
+      "privateTools": ["personal-finance", "personal-email", "calendar", "document-store", "bank-statement"],
+      "sharedTools": [],
+      "contacts": { "owner": "env:TELEGRAM_PERSONAL_CHAT_ID" },
+      "chats": { "dm": "env:TELEGRAM_PERSONAL_CHAT_ID" }
+    }
+  ],
+  "brokers": [
+    {
+      "id": "main",
+      "name": "BrokerPilot Main",
+      "assistantName": "BrokerPilot",
+      "botToken": "env:TELEGRAM_BOT_TOKEN",
+      "groupFolder": "main",
+      "dbSchema": "work",
+      "himalayaAccount": "work",
+      "isAdmin": true,
+      "contacts": { "owner": "env:TELEGRAM_CHAT_ID" },
+      "chats": {
+        "dm": "env:TELEGRAM_CHAT_ID",
+        "operations": {
+          "chatId": "env:TELEGRAM_MAIN_OPS_GROUP_ID",
+          "topics": {
+            "calendar-tasks-alerts": "Calendar / Tasks / Alerts",
+            "lender-knowledge": "Lender Knowledge",
+            "bank-statements": "Bank Statements",
+            "lender-matching": "Lender Matching"
+          }
+        },
+        "leads": "env:TELEGRAM_MAIN_LEADS_GROUP_ID"
+      }
+    }
+  ]
+}
