@@ -44,6 +44,15 @@ async function sendTelegramMessage(
   }
 }
 
+/**
+ * Extract the numeric Telegram chat ID from a JID.
+ * Handles: tg:{chatId} and tg:{tenantId}:{chatId}
+ */
+export function parseTelegramChatId(jid: string): string {
+  const parts = jid.split(':');
+  return parts.length >= 3 ? parts[2] : parts[1];
+}
+
 export class TelegramChannel implements Channel {
   name: string;
 
@@ -51,15 +60,31 @@ export class TelegramChannel implements Channel {
   private opts: TelegramChannelOpts;
   private botToken: string;
   private managedJids = new Set<string>();
+  private tenantId: string | null = null;
 
   constructor(
     botToken: string,
     opts: TelegramChannelOpts,
     instanceName?: string,
+    tenantId?: string,
   ) {
     this.botToken = botToken;
     this.opts = opts;
     this.name = instanceName ?? 'telegram';
+    this.tenantId = tenantId ?? null;
+  }
+
+  /**
+   * Construct a JID for a Telegram chat.
+   * DMs with tenantId: tg:{tenantId}:{chatId}
+   * Groups (negative IDs) and non-tenant: tg:{chatId}
+   */
+  private buildJid(chatId: number, chatType: string): string {
+    const isGroup = chatType === 'group' || chatType === 'supergroup';
+    if (this.tenantId && !isGroup) {
+      return `tg:${this.tenantId}:${chatId}`;
+    }
+    return `tg:${chatId}`;
   }
 
   private get assistantName(): string {
@@ -90,7 +115,7 @@ export class TelegramChannel implements Channel {
           : (ctx.chat as any).title || 'Unknown';
 
       ctx.reply(
-        `Chat ID: \`tg:${chatId}\`\nName: ${chatName}\nType: ${chatType}`,
+        `Chat ID: \`${this.buildJid(chatId, chatType)}\`\nName: ${chatName}\nType: ${chatType}`,
         { parse_mode: 'Markdown' },
       );
     });
@@ -110,7 +135,7 @@ export class TelegramChannel implements Channel {
         if (TELEGRAM_BOT_COMMANDS.has(cmd)) return;
       }
 
-      const chatJid = `tg:${ctx.chat.id}`;
+      const chatJid = this.buildJid(ctx.chat.id, ctx.chat.type);
       let content = ctx.message.text;
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName =
@@ -187,7 +212,7 @@ export class TelegramChannel implements Channel {
 
     // Handle non-text messages with placeholders so the agent knows something was sent
     const storeNonText = (ctx: any, placeholder: string) => {
-      const chatJid = `tg:${ctx.chat.id}`;
+      const chatJid = this.buildJid(ctx.chat.id, ctx.chat.type);
       const group = this.opts.registeredGroups()[chatJid];
       if (!group) return;
 
@@ -268,7 +293,7 @@ export class TelegramChannel implements Channel {
     }
 
     try {
-      const numericId = jid.replace(/^tg:/, '');
+      const numericId = parseTelegramChatId(jid);
       const sendOpts = options?.topicId
         ? { message_thread_id: options.topicId }
         : {};
@@ -317,7 +342,7 @@ export class TelegramChannel implements Channel {
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
     if (!this.bot || !isTyping) return;
     try {
-      const numericId = jid.replace(/^tg:/, '');
+      const numericId = parseTelegramChatId(jid);
       await this.bot.api.sendChatAction(numericId, 'typing');
     } catch (err) {
       logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
@@ -330,7 +355,7 @@ export function createTenantTelegramChannel(
   opts: TelegramChannelOpts,
   tenantId: string,
 ): TelegramChannel {
-  return new TelegramChannel(botToken, opts, `telegram:${tenantId}`);
+  return new TelegramChannel(botToken, opts, `telegram:${tenantId}`, tenantId);
 }
 
 registerChannel('telegram', (opts: ChannelOpts) => {

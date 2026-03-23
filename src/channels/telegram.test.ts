@@ -73,6 +73,7 @@ import {
   TelegramChannel,
   TelegramChannelOpts,
   createTenantTelegramChannel,
+  parseTelegramChatId,
 } from './telegram.js';
 
 // --- Test helpers ---
@@ -982,5 +983,144 @@ describe('TelegramChannel — multi-tenant', () => {
   it('createTenantTelegramChannel produces correct instance name', () => {
     const channel = createTenantTelegramChannel('token', baseOpts(), 'acme');
     expect(channel.name).toBe('telegram:acme');
+  });
+});
+
+describe('parseTelegramChatId', () => {
+  it('handles tg:{chatId} format', () => {
+    expect(parseTelegramChatId('tg:12345')).toBe('12345');
+    expect(parseTelegramChatId('tg:-1003766720076')).toBe('-1003766720076');
+  });
+
+  it('handles tg:{tenantId}:{chatId} format', () => {
+    expect(parseTelegramChatId('tg:personal:12345')).toBe('12345');
+    expect(parseTelegramChatId('tg:main:8611182982')).toBe('8611182982');
+  });
+});
+
+describe('TelegramChannel — tenant JID namespacing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('tenant channel namespaces DM JIDs with tenantId', async () => {
+    const opts = createTestOpts({
+      registeredGroups: vi.fn(() => ({
+        'tg:acme:100200300': {
+          name: 'Private',
+          folder: 'private',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+        },
+      })),
+    });
+    const channel = new TelegramChannel(
+      'test-token',
+      opts,
+      'telegram:acme',
+      'acme',
+    );
+    await channel.connect();
+
+    const ctx = createTextCtx({
+      text: 'Hello',
+      chatType: 'private',
+      firstName: 'Alice',
+    });
+    await triggerTextMessage(ctx);
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'tg:acme:100200300',
+      expect.objectContaining({ chat_jid: 'tg:acme:100200300' }),
+    );
+  });
+
+  it('tenant channel keeps group JIDs un-namespaced', async () => {
+    const opts = createTestOpts();
+    const channel = new TelegramChannel(
+      'test-token',
+      opts,
+      'telegram:acme',
+      'acme',
+    );
+    await channel.connect();
+
+    const ctx = createTextCtx({
+      text: 'Hello',
+      chatType: 'group',
+    });
+    await triggerTextMessage(ctx);
+
+    expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      'tg:100200300',
+      expect.any(String),
+      'Test Group',
+      'telegram',
+      true,
+    );
+  });
+
+  it('non-tenant channel uses plain JIDs for DMs', async () => {
+    const opts = createTestOpts({
+      registeredGroups: vi.fn(() => ({
+        'tg:100200300': {
+          name: 'Private',
+          folder: 'private',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+        },
+      })),
+    });
+    const channel = new TelegramChannel('test-token', opts);
+    await channel.connect();
+
+    const ctx = createTextCtx({
+      text: 'Hello',
+      chatType: 'private',
+      firstName: 'Alice',
+    });
+    await triggerTextMessage(ctx);
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'tg:100200300',
+      expect.objectContaining({ chat_jid: 'tg:100200300' }),
+    );
+  });
+
+  it('sendMessage extracts chatId from tenant-namespaced JID', async () => {
+    const opts = createTestOpts();
+    const channel = new TelegramChannel(
+      'test-token',
+      opts,
+      'telegram:acme',
+      'acme',
+    );
+    await channel.connect();
+
+    await channel.sendMessage('tg:acme:100200300', 'Hello');
+
+    expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+      '100200300',
+      'Hello',
+      { parse_mode: 'Markdown' },
+    );
+  });
+
+  it('setTyping extracts chatId from tenant-namespaced JID', async () => {
+    const opts = createTestOpts();
+    const channel = new TelegramChannel(
+      'test-token',
+      opts,
+      'telegram:acme',
+      'acme',
+    );
+    await channel.connect();
+
+    await channel.setTyping('tg:acme:100200300', true);
+
+    expect(currentBot().api.sendChatAction).toHaveBeenCalledWith(
+      '100200300',
+      'typing',
+    );
   });
 });
