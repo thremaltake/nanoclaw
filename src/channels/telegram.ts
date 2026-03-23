@@ -145,6 +145,7 @@ export class TelegramChannel implements Channel {
         'Unknown';
       const sender = ctx.from?.id.toString() || '';
       const msgId = ctx.message.message_id.toString();
+      const topicId = ctx.message.message_thread_id;
 
       // Determine chat name
       const chatName =
@@ -202,6 +203,7 @@ export class TelegramChannel implements Channel {
         content,
         timestamp,
         is_from_me: false,
+        topic_id: topicId,
       });
 
       logger.info(
@@ -223,6 +225,7 @@ export class TelegramChannel implements Channel {
         ctx.from?.id?.toString() ||
         'Unknown';
       const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
+      const topicId = ctx.message?.message_thread_id;
 
       const isGroup =
         ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
@@ -241,6 +244,7 @@ export class TelegramChannel implements Channel {
         content: `${placeholder}${caption}`,
         timestamp,
         is_from_me: false,
+        topic_id: topicId,
       });
     };
 

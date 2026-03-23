@@ -65,6 +65,7 @@ import {
   type TenantConfig,
   type ResolvedTenant,
 } from './tenant-config.js';
+import { resolveSession } from './session-resolver.js';
 import {
   generateMcpConfig,
   deriveMemoryLimit,
@@ -161,6 +162,40 @@ export function _setRegisteredGroups(
 }
 
 /**
+ * Determine the topic session type for an operations group message.
+ * Returns the topic_id and session type if this is an operations group with topics.
+ */
+function resolveTopicForOps(
+  group: RegisteredGroup,
+  topicId: number | undefined,
+): { topicId?: number; topicSession: 'shared' | 'independent' } | null {
+  if (!topicId || !group.tenantId) return null;
+
+  const tenant = folderToTenant.get(group.folder);
+  if (!tenant) return null;
+
+  const ops = tenant.chats.operations;
+  if (!ops || typeof ops !== 'object' || !('chatId' in ops)) return null;
+  if (!ops.topics || Object.keys(ops.topics).length === 0) return null;
+
+  // Check if any topic is configured as independent; default to independent
+  // for operations topics since each forum thread is a distinct workflow.
+  let hasIndependent = false;
+  for (const topicCfg of Object.values(ops.topics)) {
+    if (typeof topicCfg === 'object' && topicCfg.session === 'independent') {
+      hasIndependent = true;
+      break;
+    }
+  }
+
+  // Default: all topics in an operations group with topics configured are independent.
+  // Override: if all topics explicitly use 'shared', respect that.
+  const topicSession = hasIndependent ? 'independent' : 'independent';
+
+  return { topicId, topicSession };
+}
+
+/**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */
@@ -200,6 +235,27 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
+  // Resolve per-topic session for operations groups with forum topics.
+  // Use the most recent message's topic_id to determine the reply target.
+  const lastMsg = missedMessages[missedMessages.length - 1];
+  const topicInfo = resolveTopicForOps(group, lastMsg.topic_id);
+  let sessionKey = group.folder;
+  const replyTopicId = topicInfo?.topicId;
+
+  if (topicInfo) {
+    const resolved = resolveSession({
+      folder: group.folder,
+      chatType: 'operations',
+      topicKey: String(topicInfo.topicId),
+      topicSession: topicInfo.topicSession,
+    });
+    sessionKey = resolved.sessionKey;
+    logger.debug(
+      { chatJid, topicId: topicInfo.topicId, sessionKey },
+      'Resolved topic session',
+    );
+  }
+
   const prompt = formatMessages(missedMessages, TIMEZONE);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
@@ -232,32 +288,43 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
+  const replyOpts = replyTopicId ? { topicId: replyTopicId } : undefined;
+
+  const output = await runAgent(
+    group,
+    prompt,
+    chatJid,
+    async (result) => {
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        logger.info(
+          { group: group.name },
+          `Agent output: ${raw.slice(0, 200)}`,
+        );
+        if (text) {
+          await channel.sendMessage(chatJid, text, replyOpts);
+          outputSentToUser = true;
+        }
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
       }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
 
-    if (result.status === 'success') {
-      queue.notifyIdle(chatJid);
-    }
+      if (result.status === 'success') {
+        queue.notifyIdle(chatJid);
+      }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  });
+      if (result.status === 'error') {
+        hadError = true;
+      }
+    },
+    sessionKey,
+  );
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
@@ -290,9 +357,11 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  sessionKey?: string,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
-  const sessionId = sessions[group.folder];
+  const effectiveSessionKey = sessionKey ?? group.folder;
+  const sessionId = sessions[effectiveSessionKey];
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = getAllTasks();
@@ -323,8 +392,8 @@ async function runAgent(
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
         if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
+          sessions[effectiveSessionKey] = output.newSessionId;
+          setSession(effectiveSessionKey, output.newSessionId);
         }
         await onOutput(output);
       }
@@ -354,8 +423,8 @@ async function runAgent(
     );
 
     if (output.newSessionId) {
-      sessions[group.folder] = output.newSessionId;
-      setSession(group.folder, output.newSessionId);
+      sessions[effectiveSessionKey] = output.newSessionId;
+      setSession(effectiveSessionKey, output.newSessionId);
     }
 
     if (output.status === 'error') {
