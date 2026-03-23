@@ -1,0 +1,18 @@
+{
+  "planPath": "docs/superpowers/plans/2026-03-22-p0-multi-tenant-core.md",
+  "tasks": [
+    {"id": 1, "subject": "Task 1: Extend Type Interfaces", "status": "completed"},
+    {"id": 2, "subject": "Task 2: Tenant Config Loader with Zod Validation", "status": "completed", "blockedBy": [1]},
+    {"id": 3, "subject": "Task 3: MCP Config Generator", "status": "completed", "blockedBy": [2]},
+    {"id": 4, "subject": "Task 4: Session Resolver", "status": "completed", "blockedBy": [1]},
+    {"id": 5, "subject": "Task 5: Database Migration — Session Key Rename", "status": "completed", "blockedBy": [1]},
+    {"id": 6, "subject": "Task 6: Multi-Bot TelegramChannel", "status": "completed", "blockedBy": [1]},
+    {"id": 7, "subject": "Task 7: Queue by Folder with Priority", "status": "completed", "blockedBy": [1]},
+    {"id": 8, "subject": "Task 8: Container Hardening and allowedTools", "status": "completed", "blockedBy": [1]},
+    {"id": 9, "subject": "Task 9: Orchestrator Rewire — Tenant-Aware Startup", "status": "completed", "blockedBy": [2, 3, 4, 5, 6, 7, 8]},
+    {"id": 10, "subject": "Task 10: MCP Config File Generation", "status": "completed", "blockedBy": [3, 9]},
+    {"id": 11, "subject": "Task 11: Backward Compatibility Verification", "status": "completed", "blockedBy": [9]},
+    {"id": 12, "subject": "Task 12: Daily Backup Script", "status": "completed"}
+  ],
+  "lastUpdated": "2026-03-22T15:10:00Z"
+}
