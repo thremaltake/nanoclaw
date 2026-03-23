@@ -54,6 +54,21 @@
         },
         "leads": "env:TELEGRAM_MAIN_LEADS_GROUP_ID"
       }
+    },
+    {
+      "id": "caliort",
+      "name": "Caliort Capital",
+      "assistantName": "DinnerBros",
+      "botToken": "env:TELEGRAM_CALIORT_BOT_TOKEN",
+      "groupFolder": "caliort",
+      "dbSchema": "caliort",
+      "isAdmin": false,
+      "isCustomerFacing": false,
+      "requiresTrigger": false,
+      "privateTools": [],
+      "sharedTools": [],
+      "contacts": { "owner": "env:TELEGRAM_CALIORT_CHAT_ID" },
+      "chats": { "dm": "env:TELEGRAM_CALIORT_CHAT_ID" }
     }
   ]
 }
