@@ -46,10 +46,10 @@
         "operations": {
           "chatId": "env:TELEGRAM_MAIN_OPS_GROUP_ID",
           "topics": {
-            "calendar-tasks-alerts": "Calendar / Tasks / Alerts",
-            "lender-knowledge": "Lender Knowledge",
-            "bank-statements": "Bank Statements",
-            "lender-matching": "Lender Matching"
+            "247": { "name": "Calendar / Tasks / Alerts", "session": "independent" },
+            "245": { "name": "Lender Knowledge", "session": "independent" },
+            "246": { "name": "Bank Statements", "session": "independent" },
+            "244": { "name": "Lender Matching", "session": "independent" }
           }
         },
         "leads": "env:TELEGRAM_MAIN_LEADS_GROUP_ID"

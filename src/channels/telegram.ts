@@ -113,11 +113,13 @@ export class TelegramChannel implements Channel {
         chatType === 'private'
           ? ctx.from?.first_name || 'Private'
           : (ctx.chat as any).title || 'Unknown';
+      const topicId = ctx.message?.message_thread_id;
 
-      ctx.reply(
-        `Chat ID: \`${this.buildJid(chatId, chatType)}\`\nName: ${chatName}\nType: ${chatType}`,
-        { parse_mode: 'Markdown' },
-      );
+      let info = `Chat ID: \`${this.buildJid(chatId, chatType)}\`\nName: ${chatName}\nType: ${chatType}`;
+      if (topicId) {
+        info += `\nTopic ID: \`${topicId}\``;
+      }
+      ctx.reply(info, { parse_mode: 'Markdown' });
     });
 
     // Command to check bot status
