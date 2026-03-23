@@ -632,8 +632,8 @@ async function main(): Promise<void> {
 
       const jids: string[] = [];
 
-      // Register DM
-      const dmJid = `tg:${tenant.chats.dm}`;
+      // Register DM — namespace by tenant to prevent collision
+      const dmJid = `tg:${tenant.id}:${tenant.chats.dm}`;
       jids.push(dmJid);
       channel.addManagedJid(dmJid);
       registerGroup(dmJid, {
