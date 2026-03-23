@@ -486,6 +486,56 @@ describe('registered group isMain', () => {
   });
 });
 
+// --- registered_groups tenant fields ---
+
+describe('registered_groups tenant fields', () => {
+  it('persists tenant fields in registered_groups', () => {
+    setRegisteredGroup('tg:personal:12345', {
+      name: 'Personal DM',
+      folder: 'personal',
+      trigger: '@Personal',
+      added_at: new Date().toISOString(),
+      isMain: true,
+      tenantId: 'personal',
+      assistantName: 'Personal',
+      isCustomerFacing: false,
+      allowedTools: ['calendar', 'email'],
+    });
+
+    const groups = getAllRegisteredGroups();
+    expect(groups['tg:personal:12345'].tenantId).toBe('personal');
+    expect(groups['tg:personal:12345'].assistantName).toBe('Personal');
+    expect(groups['tg:personal:12345'].isCustomerFacing).toBe(false);
+    expect(groups['tg:personal:12345'].allowedTools).toEqual([
+      'calendar',
+      'email',
+    ]);
+  });
+
+  it('allows multiple JIDs for the same folder', () => {
+    setRegisteredGroup('tg:main:12345', {
+      name: 'Main DM',
+      folder: 'main',
+      trigger: '@BrokerPilot',
+      added_at: new Date().toISOString(),
+      tenantId: 'main',
+      assistantName: 'BrokerPilot',
+    });
+    setRegisteredGroup('tg:-100999', {
+      name: 'Main Ops',
+      folder: 'main',
+      trigger: '@BrokerPilot',
+      added_at: new Date().toISOString(),
+      tenantId: 'main',
+      assistantName: 'BrokerPilot',
+    });
+
+    const groups = getAllRegisteredGroups();
+    expect(groups['tg:main:12345'].folder).toBe('main');
+    expect(groups['tg:-100999'].folder).toBe('main');
+  });
+});
+
 // --- session management — composite keys ---
 
 describe('session management — composite keys', () => {

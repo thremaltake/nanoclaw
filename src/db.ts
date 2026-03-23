@@ -76,11 +76,16 @@ function createSchema(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS registered_groups (
       jid TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      folder TEXT NOT NULL UNIQUE,
+      folder TEXT NOT NULL,
       trigger_pattern TEXT NOT NULL,
       added_at TEXT NOT NULL,
       container_config TEXT,
-      requires_trigger INTEGER DEFAULT 1
+      requires_trigger INTEGER DEFAULT 1,
+      is_main INTEGER DEFAULT 0,
+      tenant_id TEXT,
+      assistant_name TEXT,
+      is_customer_facing INTEGER DEFAULT 0,
+      allowed_tools TEXT
     );
   `);
 
@@ -123,6 +128,73 @@ function createSchema(database: Database.Database): void {
     // Backfill: existing rows with folder = 'main' are the main group
     database.exec(
       `UPDATE registered_groups SET is_main = 1 WHERE folder = 'main'`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
+  // Drop folder UNIQUE constraint by recreating table (migration for existing DBs)
+  // This also adds tenant columns, so the ALTER TABLE migrations below become no-ops.
+  try {
+    const tableInfo = database
+      .prepare(
+        `SELECT sql FROM sqlite_master WHERE type='table' AND name='registered_groups'`,
+      )
+      .get() as { sql: string } | undefined;
+    if (tableInfo?.sql?.includes('folder TEXT NOT NULL UNIQUE')) {
+      database.exec(`
+        CREATE TABLE registered_groups_new (
+          jid TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          folder TEXT NOT NULL,
+          trigger_pattern TEXT NOT NULL,
+          added_at TEXT NOT NULL,
+          container_config TEXT,
+          requires_trigger INTEGER DEFAULT 1,
+          is_main INTEGER DEFAULT 0,
+          tenant_id TEXT,
+          assistant_name TEXT,
+          is_customer_facing INTEGER DEFAULT 0,
+          allowed_tools TEXT
+        );
+        INSERT INTO registered_groups_new SELECT jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main, NULL, NULL, 0, NULL FROM registered_groups;
+        DROP TABLE registered_groups;
+        ALTER TABLE registered_groups_new RENAME TO registered_groups;
+      `);
+    }
+  } catch {
+    /* table already migrated or new schema */
+  }
+
+  // Add tenant_id column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec(`ALTER TABLE registered_groups ADD COLUMN tenant_id TEXT`);
+  } catch {
+    /* column already exists */
+  }
+
+  // Add assistant_name column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec(
+      `ALTER TABLE registered_groups ADD COLUMN assistant_name TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
+  // Add is_customer_facing column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec(
+      `ALTER TABLE registered_groups ADD COLUMN is_customer_facing INTEGER DEFAULT 0`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
+  // Add allowed_tools column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec(
+      `ALTER TABLE registered_groups ADD COLUMN allowed_tools TEXT`,
     );
   } catch {
     /* column already exists */
@@ -563,6 +635,10 @@ export function getRegisteredGroup(
         container_config: string | null;
         requires_trigger: number | null;
         is_main: number | null;
+        tenant_id: string | null;
+        assistant_name: string | null;
+        is_customer_facing: number | null;
+        allowed_tools: string | null;
       }
     | undefined;
   if (!row) return undefined;
@@ -585,6 +661,13 @@ export function getRegisteredGroup(
     requiresTrigger:
       row.requires_trigger === null ? undefined : row.requires_trigger === 1,
     isMain: row.is_main === 1 ? true : undefined,
+    tenantId: row.tenant_id ?? undefined,
+    assistantName: row.assistant_name ?? undefined,
+    isCustomerFacing:
+      row.is_customer_facing === null
+        ? undefined
+        : row.is_customer_facing === 1,
+    allowedTools: row.allowed_tools ? JSON.parse(row.allowed_tools) : undefined,
   };
 }
 
@@ -593,8 +676,8 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main, tenant_id, assistant_name, is_customer_facing, allowed_tools)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
@@ -604,6 +687,10 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     group.containerConfig ? JSON.stringify(group.containerConfig) : null,
     group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
     group.isMain ? 1 : 0,
+    group.tenantId ?? null,
+    group.assistantName ?? null,
+    group.isCustomerFacing ? 1 : 0,
+    group.allowedTools ? JSON.stringify(group.allowedTools) : null,
   );
 }
 
@@ -617,6 +704,10 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     container_config: string | null;
     requires_trigger: number | null;
     is_main: number | null;
+    tenant_id: string | null;
+    assistant_name: string | null;
+    is_customer_facing: number | null;
+    allowed_tools: string | null;
   }>;
   const result: Record<string, RegisteredGroup> = {};
   for (const row of rows) {
@@ -638,6 +729,15 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
       requiresTrigger:
         row.requires_trigger === null ? undefined : row.requires_trigger === 1,
       isMain: row.is_main === 1 ? true : undefined,
+      tenantId: row.tenant_id ?? undefined,
+      assistantName: row.assistant_name ?? undefined,
+      isCustomerFacing:
+        row.is_customer_facing === null
+          ? undefined
+          : row.is_customer_facing === 1,
+      allowedTools: row.allowed_tools
+        ? JSON.parse(row.allowed_tools)
+        : undefined,
     };
   }
   return result;
