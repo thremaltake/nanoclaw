@@ -253,11 +253,11 @@ describe('container hardening', () => {
     expect(args).toContain('--cap-drop=ALL');
   });
 
-  it('includes --pids-limit 100', () => {
+  it('includes --pids-limit 256', () => {
     const args = buildContainerArgs([], 'test-container');
     const idx = args.indexOf('--pids-limit');
     expect(idx).toBeGreaterThan(-1);
-    expect(args[idx + 1]).toBe('100');
+    expect(args[idx + 1]).toBe('256');
   });
 
   it('sets --memory when memoryLimit provided', () => {

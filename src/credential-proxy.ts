@@ -50,6 +50,16 @@ export function startCredentialProxy(
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {
         const body = Buffer.concat(chunks);
+        logger.debug(
+          {
+            method: req.method,
+            url: req.url,
+            hasAuth: !!req.headers['authorization'],
+            hasApiKey: !!req.headers['x-api-key'],
+            hasBeta: !!req.headers['anthropic-beta'],
+          },
+          'Proxy request',
+        );
         const headers: Record<string, string | number | string[] | undefined> =
           {
             ...(req.headers as Record<string, string>),
@@ -68,15 +78,23 @@ export function startCredentialProxy(
           headers['x-api-key'] = secrets.ANTHROPIC_API_KEY;
         } else {
           // OAuth mode: replace placeholder Bearer token with the real one
-          // only when the container actually sends an Authorization header
-          // (exchange request + auth probes). Post-exchange requests use
-          // x-api-key only, so they pass through without token injection.
+          // and inject the required anthropic-beta header so the API accepts
+          // OAuth tokens on /v1/messages.
           if (headers['authorization']) {
             delete headers['authorization'];
             if (oauthToken) {
               headers['authorization'] = `Bearer ${oauthToken}`;
             }
           }
+          // Merge oauth-2025-04-20 into existing anthropic-beta header
+          const existing = (headers['anthropic-beta'] as string) || '';
+          const betaValues = existing
+            ? existing.split(',').map((s) => s.trim())
+            : [];
+          if (!betaValues.includes('oauth-2025-04-20')) {
+            betaValues.push('oauth-2025-04-20');
+          }
+          headers['anthropic-beta'] = betaValues.join(',');
         }
 
         const upstream = makeRequest(
@@ -88,6 +106,20 @@ export function startCredentialProxy(
             headers,
           } as RequestOptions,
           (upRes) => {
+            if (upRes.statusCode && upRes.statusCode >= 400) {
+              const errChunks: Buffer[] = [];
+              upRes.on('data', (c) => errChunks.push(c));
+              upRes.on('end', () => {
+                const errBody = Buffer.concat(errChunks).toString().slice(0, 500);
+                logger.warn(
+                  { status: upRes.statusCode, url: req.url, body: errBody },
+                  'Proxy upstream error response',
+                );
+                res.writeHead(upRes.statusCode!, upRes.headers);
+                res.end(Buffer.concat(errChunks));
+              });
+              return;
+            }
             res.writeHead(upRes.statusCode!, upRes.headers);
             upRes.pipe(res);
           },

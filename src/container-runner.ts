@@ -314,7 +314,7 @@ export function buildContainerArgs(
   // Prevent privilege escalation inside the container
   args.push('--security-opt=no-new-privileges');
   args.push('--cap-drop=ALL');
-  args.push('--pids-limit', '100');
+  args.push('--pids-limit', '256');
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
@@ -353,13 +353,13 @@ export function buildContainerArgs(
 
   // Mirror the host's auth method with a placeholder value.
   // API key mode: SDK sends x-api-key, proxy replaces with real key.
-  // OAuth mode:   SDK exchanges placeholder token for temp API key,
-  //               proxy injects real OAuth token on that exchange request.
+  // OAuth mode:   Use ANTHROPIC_AUTH_TOKEN so Claude CLI sends Bearer auth
+  //               on all requests; proxy swaps placeholder for real token.
   const authMode = detectAuthMode();
   if (authMode === 'api-key') {
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
   } else {
-    args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    args.push('-e', 'ANTHROPIC_AUTH_TOKEN=placeholder');
   }
 
   // Pass MCP environment variables into the container so .mcp.json ${VAR}

@@ -101,21 +101,21 @@ describe('generateMcpConfig', () => {
 });
 
 describe('deriveMemoryLimit', () => {
-  it('returns 256m for customer-facing', () => {
+  it('returns 1024m for customer-facing', () => {
     const result = deriveMemoryLimit(customerTenant);
-    expect(result).toBe('256m');
+    expect(result).toBe('1024m');
   });
 
-  it('returns 768m for <=5 tools', () => {
+  it('returns 2048m for <=5 tools', () => {
     const tenant: ResolvedTenant = {
       ...baseTenant,
       isCustomerFacing: false,
       allTools: ['deal-manager', 'work-email', 'calendar'],
     };
-    expect(deriveMemoryLimit(tenant)).toBe('768m');
+    expect(deriveMemoryLimit(tenant)).toBe('2048m');
   });
 
-  it('returns 1024m for >5 tools', () => {
+  it('returns 4096m for >5 tools', () => {
     const tenant: ResolvedTenant = {
       ...baseTenant,
       isCustomerFacing: false,
@@ -128,6 +128,6 @@ describe('deriveMemoryLimit', () => {
         'lender-knowledge',
       ],
     };
-    expect(deriveMemoryLimit(tenant)).toBe('1024m');
+    expect(deriveMemoryLimit(tenant)).toBe('4096m');
   });
 });
