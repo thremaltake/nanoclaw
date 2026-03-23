@@ -96,7 +96,10 @@ export class GroupQueue {
     if (state.active) {
       state.pendingWithPriority.push({ priority });
       state.pendingMessages = true;
-      logger.debug({ queueKey, priority }, 'Container active, priority message queued');
+      logger.debug(
+        { queueKey, priority },
+        'Container active, priority message queued',
+      );
       return;
     }
 

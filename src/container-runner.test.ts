@@ -57,7 +57,10 @@ vi.mock('./container-runtime.js', () => ({
   CONTAINER_HOST_GATEWAY: 'host.docker.internal',
   CONTAINER_RUNTIME_BIN: 'docker',
   hostGatewayArgs: vi.fn(() => []),
-  readonlyMountArgs: vi.fn((hostPath: string, containerPath: string) => ['-v', `${hostPath}:${containerPath}:ro`]),
+  readonlyMountArgs: vi.fn((hostPath: string, containerPath: string) => [
+    '-v',
+    `${hostPath}:${containerPath}:ro`,
+  ]),
   stopContainer: vi.fn((name: string) => `docker stop ${name}`),
 }));
 
@@ -74,8 +77,12 @@ vi.mock('./env.js', () => ({
 
 // Mock group-folder
 vi.mock('./group-folder.js', () => ({
-  resolveGroupFolderPath: vi.fn((folder: string) => `/tmp/nanoclaw-test-groups/${folder}`),
-  resolveGroupIpcPath: vi.fn((folder: string) => `/tmp/nanoclaw-test-data/ipc/${folder}`),
+  resolveGroupFolderPath: vi.fn(
+    (folder: string) => `/tmp/nanoclaw-test-groups/${folder}`,
+  ),
+  resolveGroupIpcPath: vi.fn(
+    (folder: string) => `/tmp/nanoclaw-test-data/ipc/${folder}`,
+  ),
 }));
 
 // Create a controllable fake ChildProcess
@@ -113,7 +120,11 @@ vi.mock('child_process', async () => {
   };
 });
 
-import { runContainerAgent, buildContainerArgs, ContainerOutput } from './container-runner.js';
+import {
+  runContainerAgent,
+  buildContainerArgs,
+  ContainerOutput,
+} from './container-runner.js';
 import type { RegisteredGroup } from './types.js';
 
 const testGroup: RegisteredGroup = {

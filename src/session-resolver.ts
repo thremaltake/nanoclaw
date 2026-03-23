@@ -16,7 +16,8 @@ export interface ResolvedSession {
 
 export function resolveSession(ctx: SessionContext): ResolvedSession {
   // Scheduled tasks -> priority 3, folder-level session
-  if (ctx.isScheduledTask) return { sessionKey: ctx.folder, queueKey: ctx.folder, priority: 3 };
+  if (ctx.isScheduledTask)
+    return { sessionKey: ctx.folder, queueKey: ctx.folder, priority: 3 };
 
   // Customer-facing -> per-customer, always independent
   if (ctx.chatType === 'customer') {
@@ -31,7 +32,11 @@ export function resolveSession(ctx: SessionContext): ResolvedSession {
   }
 
   // Independent operations topics -> own session + queue
-  if (ctx.chatType === 'operations' && ctx.topicSession === 'independent' && ctx.topicKey) {
+  if (
+    ctx.chatType === 'operations' &&
+    ctx.topicSession === 'independent' &&
+    ctx.topicKey
+  ) {
     const key = `${ctx.folder}:topic:${ctx.topicKey}`;
     return { sessionKey: key, queueKey: key, priority: 2 };
   }

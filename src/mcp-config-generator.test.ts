@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import type { ResolvedTenant } from './tenant-config.js';
-import { generateMcpConfig, deriveMemoryLimit } from './mcp-config-generator.js';
+import {
+  generateMcpConfig,
+  deriveMemoryLimit,
+} from './mcp-config-generator.js';
 
 // Base fixture: admin broker tenant with two tools
 const baseTenant: ResolvedTenant = {
@@ -30,7 +33,10 @@ const customerTenant: ResolvedTenant = {
 describe('generateMcpConfig', () => {
   it('generates MCP servers for tenant tools only', () => {
     const result = generateMcpConfig(baseTenant);
-    expect(Object.keys(result.mcpServers)).toEqual(['deal-manager', 'lender-knowledge']);
+    expect(Object.keys(result.mcpServers)).toEqual([
+      'deal-manager',
+      'lender-knowledge',
+    ]);
     expect(result.mcpServers['deal-manager'].command).toBe('npx');
     expect(result.mcpServers['deal-manager'].args).toEqual([
       'tsx',
@@ -78,7 +84,9 @@ describe('generateMcpConfig', () => {
     const result = generateMcpConfig(baseTenant);
     const env = result.mcpServers['deal-manager'].env ?? {};
     expect(env['SUPABASE_URL']).toBe('${SUPABASE_URL}');
-    expect(env['SUPABASE_SERVICE_ROLE_KEY']).toBe('${SUPABASE_SERVICE_ROLE_KEY}');
+    expect(env['SUPABASE_SERVICE_ROLE_KEY']).toBe(
+      '${SUPABASE_SERVICE_ROLE_KEY}',
+    );
   });
 
   it('ignores unknown tools not in MCP_TEMPLATES', () => {

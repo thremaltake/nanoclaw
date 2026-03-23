@@ -3,7 +3,11 @@ import { resolveSession, SessionContext } from './session-resolver.js';
 
 describe('resolveSession', () => {
   it('resolves DM to folder-level session with priority 1', () => {
-    const ctx: SessionContext = { folder: 'acme', chatType: 'dm', senderId: 'u1' };
+    const ctx: SessionContext = {
+      folder: 'acme',
+      chatType: 'dm',
+      senderId: 'u1',
+    };
     const result = resolveSession(ctx);
     expect(result.sessionKey).toBe('acme');
     expect(result.queueKey).toBe('acme');

@@ -419,7 +419,11 @@ export async function runContainerAgent(
     if (tenant) {
       const mcpConfig = generateMcpConfig(tenant);
       const groupMcpPath = path.join(GROUPS_DIR, group.folder, '.mcp.json');
-      const overridePath = path.join(GROUPS_DIR, group.folder, '.mcp.override.json');
+      const overridePath = path.join(
+        GROUPS_DIR,
+        group.folder,
+        '.mcp.override.json',
+      );
 
       let finalServers = mcpConfig.mcpServers;
 
@@ -434,7 +438,10 @@ export async function runContainerAgent(
         finalServers = { ...finalServers, ...(overrides.mcpServers ?? {}) };
       }
 
-      fs.writeFileSync(groupMcpPath, JSON.stringify({ mcpServers: finalServers }, null, 2));
+      fs.writeFileSync(
+        groupMcpPath,
+        JSON.stringify({ mcpServers: finalServers }, null, 2),
+      );
     }
   }
 

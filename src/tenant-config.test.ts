@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
-  return { ...actual, default: { ...actual, existsSync: vi.fn(), readFileSync: vi.fn() } };
+  return {
+    ...actual,
+    default: { ...actual, existsSync: vi.fn(), readFileSync: vi.fn() },
+  };
 });
 
 vi.mock('./env.js', () => ({
@@ -15,7 +18,11 @@ vi.mock('./env.js', () => ({
 }));
 
 import fs from 'fs';
-import { loadTenantConfig, findTenant, findTenantByFolder } from './tenant-config.js';
+import {
+  loadTenantConfig,
+  findTenant,
+  findTenantByFolder,
+} from './tenant-config.js';
 
 const mockExistsSync = vi.mocked(fs.existsSync);
 const mockReadFileSync = vi.mocked(fs.readFileSync);
@@ -92,7 +99,12 @@ describe('loadTenantConfig', () => {
 
   it('throws on invalid config (missing required fields)', async () => {
     const invalidConfig = {
-      defaults: { timezone: 'UTC', briefingTime: '08:00', quietHoursStart: 20, quietHoursEnd: 7 },
+      defaults: {
+        timezone: 'UTC',
+        briefingTime: '08:00',
+        quietHoursStart: 20,
+        quietHoursEnd: 7,
+      },
       brokerDefaults: {},
       system: [],
       brokers: [

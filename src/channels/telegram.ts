@@ -52,7 +52,11 @@ export class TelegramChannel implements Channel {
   private botToken: string;
   private managedJids = new Set<string>();
 
-  constructor(botToken: string, opts: TelegramChannelOpts, instanceName?: string) {
+  constructor(
+    botToken: string,
+    opts: TelegramChannelOpts,
+    instanceName?: string,
+  ) {
     this.botToken = botToken;
     this.opts = opts;
     this.name = instanceName ?? 'telegram';
@@ -253,7 +257,11 @@ export class TelegramChannel implements Channel {
     });
   }
 
-  async sendMessage(jid: string, text: string, options?: MessageOptions): Promise<void> {
+  async sendMessage(
+    jid: string,
+    text: string,
+    options?: MessageOptions,
+  ): Promise<void> {
     if (!this.bot) {
       logger.warn('Telegram bot not initialized');
       return;
@@ -261,7 +269,9 @@ export class TelegramChannel implements Channel {
 
     try {
       const numericId = jid.replace(/^tg:/, '');
-      const sendOpts = options?.topicId ? { message_thread_id: options.topicId } : {};
+      const sendOpts = options?.topicId
+        ? { message_thread_id: options.topicId }
+        : {};
 
       // Telegram has a 4096 character limit per message — split if needed
       const MAX_LENGTH = 4096;
@@ -293,7 +303,7 @@ export class TelegramChannel implements Channel {
 
   ownsJid(jid: string): boolean {
     if (this.managedJids.size > 0) return this.managedJids.has(jid);
-    return jid.startsWith('tg:');  // backward compat for single-tenant
+    return jid.startsWith('tg:'); // backward compat for single-tenant
   }
 
   async disconnect(): Promise<void> {

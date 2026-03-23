@@ -50,55 +50,82 @@ const CUSTOMER_SDK_TOOLS = ['Read', 'Glob', 'Grep'];
 export const MCP_TEMPLATES: Record<string, McpTemplate> = {
   'deal-manager': {
     command: 'npx',
-    args: ['tsx', '/workspace/projects/brokerpilot/modules/deal-manager/src/index.ts'],
+    args: [
+      'tsx',
+      '/workspace/projects/brokerpilot/modules/deal-manager/src/index.ts',
+    ],
     envKeys: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
     schemaScoped: true,
   },
   'work-email': {
     command: 'npx',
-    args: ['tsx', '/workspace/projects/brokerpilot/modules/work-email/src/index.ts'],
+    args: [
+      'tsx',
+      '/workspace/projects/brokerpilot/modules/work-email/src/index.ts',
+    ],
     envKeys: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
     schemaScoped: true,
   },
   'personal-email': {
     command: 'npx',
-    args: ['tsx', '/workspace/projects/brokerpilot/modules/personal-email/src/index.ts'],
+    args: [
+      'tsx',
+      '/workspace/projects/brokerpilot/modules/personal-email/src/index.ts',
+    ],
     envKeys: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
     schemaScoped: true,
   },
-  'calendar': {
+  calendar: {
     command: 'npx',
-    args: ['tsx', '/workspace/projects/brokerpilot/modules/calendar/src/index.ts'],
+    args: [
+      'tsx',
+      '/workspace/projects/brokerpilot/modules/calendar/src/index.ts',
+    ],
     envKeys: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
     schemaScoped: true,
   },
   'document-store': {
     command: 'npx',
-    args: ['tsx', '/workspace/projects/brokerpilot/modules/document-store/src/index.ts'],
+    args: [
+      'tsx',
+      '/workspace/projects/brokerpilot/modules/document-store/src/index.ts',
+    ],
     envKeys: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
     schemaScoped: true,
   },
   'lender-knowledge': {
     command: 'npx',
-    args: ['tsx', '/workspace/projects/brokerpilot/modules/lender-knowledge/src/index.ts'],
+    args: [
+      'tsx',
+      '/workspace/projects/brokerpilot/modules/lender-knowledge/src/index.ts',
+    ],
     envKeys: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'VOYAGE_API_KEY'],
     schemaScoped: false,
   },
   'lender-matching': {
     command: 'npx',
-    args: ['tsx', '/workspace/projects/brokerpilot/modules/lender-matching/src/index.ts'],
+    args: [
+      'tsx',
+      '/workspace/projects/brokerpilot/modules/lender-matching/src/index.ts',
+    ],
     envKeys: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
     schemaScoped: false,
   },
   'bank-statement': {
     command: 'npx',
-    args: ['tsx', '/workspace/projects/brokerpilot/modules/bank-statement/src/index.ts'],
+    args: [
+      'tsx',
+      '/workspace/projects/brokerpilot/modules/bank-statement/src/index.ts',
+    ],
     envKeys: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
     schemaScoped: true,
   },
   'personal-finance': {
     command: 'npx',
-    args: ['tsx', '/workspace/projects/brokerpilot/modules/personal-finance/src/index.ts'],
+    args: [
+      'tsx',
+      '/workspace/projects/brokerpilot/modules/personal-finance/src/index.ts',
+    ],
     envKeys: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
     schemaScoped: true,
   },
@@ -141,7 +168,9 @@ export function generateMcpConfig(tenant: ResolvedTenant): GeneratedMcpConfig {
     mcpToolNames.push(toolName);
   }
 
-  const sdkTools = tenant.isCustomerFacing ? CUSTOMER_SDK_TOOLS : ADMIN_SDK_TOOLS;
+  const sdkTools = tenant.isCustomerFacing
+    ? CUSTOMER_SDK_TOOLS
+    : ADMIN_SDK_TOOLS;
 
   const allowedTools: string[] = [
     ...sdkTools,

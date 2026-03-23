@@ -41,8 +41,13 @@ const TenantSchema = z.object({
   status: z.enum(['active', 'paused', 'suspended', 'deactivated']).optional(),
   privateTools: z.array(z.string()).optional(),
   sharedTools: z.array(z.string()).optional(),
-  ai: z.object({ mode: z.enum(['platform', 'own']).default('platform') }).optional(),
-  contacts: z.object({ owner: z.string(), notifyOnError: z.boolean().optional() }),
+  ai: z
+    .object({ mode: z.enum(['platform', 'own']).default('platform') })
+    .optional(),
+  contacts: z.object({
+    owner: z.string(),
+    notifyOnError: z.boolean().optional(),
+  }),
   chats: ChatsSchema,
 });
 
@@ -54,7 +59,9 @@ const BrokerDefaultsSchema = z.object({
   status: z.enum(['active', 'paused', 'suspended', 'deactivated']).optional(),
   privateTools: z.array(z.string()).optional(),
   sharedTools: z.array(z.string()).optional(),
-  ai: z.object({ mode: z.enum(['platform', 'own']).default('platform') }).optional(),
+  ai: z
+    .object({ mode: z.enum(['platform', 'own']).default('platform') })
+    .optional(),
 });
 
 const DefaultsSchema = z.object({
@@ -115,7 +122,9 @@ export function resolveEnvDeep<T>(value: T, envMap: Record<string, string>): T {
       const varName = (value as string).slice(4);
       const resolved = envMap[varName] ?? process.env[varName];
       if (resolved === undefined) {
-        throw new Error(`Environment variable "${varName}" is referenced in tenants.json but not found in .env or process.env`);
+        throw new Error(
+          `Environment variable "${varName}" is referenced in tenants.json but not found in .env or process.env`,
+        );
       }
       return resolved as unknown as T;
     }
@@ -162,7 +171,9 @@ export async function loadTenantConfig(): Promise<TenantConfig | null> {
     const content = fs.readFileSync(TENANTS_FILE, 'utf-8');
     raw = JSON.parse(content);
   } catch (err) {
-    throw new Error(`Failed to read or parse tenants.json: ${(err as Error).message}`);
+    throw new Error(
+      `Failed to read or parse tenants.json: ${(err as Error).message}`,
+    );
   }
 
   // Collect all env var names referenced anywhere in the file
@@ -173,7 +184,8 @@ export async function loadTenantConfig(): Promise<TenantConfig | null> {
   const resolved = resolveEnvDeep(raw, envMap) as Record<string, unknown>;
 
   // Merge brokerDefaults into each broker entry (broker values override defaults)
-  const brokerDefaults = (resolved.brokerDefaults as Record<string, unknown>) ?? {};
+  const brokerDefaults =
+    (resolved.brokerDefaults as Record<string, unknown>) ?? {};
   const brokers = Array.isArray(resolved.brokers) ? resolved.brokers : [];
   const mergedBrokers = brokers.map((broker) => ({
     ...brokerDefaults,
@@ -217,10 +229,16 @@ export async function loadTenantConfig(): Promise<TenantConfig | null> {
 
 // --- Helpers ---
 
-export function findTenant(config: TenantConfig, id: string): ResolvedTenant | undefined {
+export function findTenant(
+  config: TenantConfig,
+  id: string,
+): ResolvedTenant | undefined {
   return config.tenants.find((t) => t.id === id);
 }
 
-export function findTenantByFolder(config: TenantConfig, folder: string): ResolvedTenant | undefined {
+export function findTenantByFolder(
+  config: TenantConfig,
+  folder: string,
+): ResolvedTenant | undefined {
   return config.tenants.find((t) => t.groupFolder === folder);
 }
