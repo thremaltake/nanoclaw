@@ -256,7 +256,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     );
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
+  // Resolve topic name for context injection
+  let topicName: string | undefined;
+  if (topicInfo?.topicId) {
+    const tenant = folderToTenant.get(group.folder);
+    const ops = tenant?.chats.operations;
+    if (ops && typeof ops === 'object' && 'topics' in ops && ops.topics) {
+      const topicCfg = ops.topics[String(topicInfo.topicId)];
+      topicName =
+        typeof topicCfg === 'string'
+          ? topicCfg
+          : typeof topicCfg === 'object' && topicCfg.name
+            ? topicCfg.name
+            : undefined;
+    }
+  }
+
+  const prompt = formatMessages(missedMessages, TIMEZONE, topicName);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
