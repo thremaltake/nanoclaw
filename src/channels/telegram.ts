@@ -46,11 +46,33 @@ async function sendTelegramMessage(
 
 /**
  * Extract the numeric Telegram chat ID from a JID.
- * Handles: tg:{chatId} and tg:{tenantId}:{chatId}
+ * Handles:
+ *   tg:{chatId}                    → chatId
+ *   tg:{tenantId}:{chatId}         → chatId
+ *   tg:{chatId}:topic:{topicId}    → chatId
  */
 export function parseTelegramChatId(jid: string): string {
-  const parts = jid.split(':');
-  return parts.length >= 3 ? parts[2] : parts[1];
+  const stripped = jid.replace(/^tg:/, '');
+  // Topic format: {chatId}:topic:{topicId} — chatId is before ":topic:"
+  if (stripped.includes(':topic:')) {
+    return stripped.split(':topic:')[0];
+  }
+  // Tenant format: {tenantId}:{chatId} — chatId is after the first ":"
+  const colonIdx = stripped.indexOf(':');
+  if (colonIdx !== -1) {
+    return stripped.slice(colonIdx + 1);
+  }
+  // Plain: just the chatId
+  return stripped;
+}
+
+/**
+ * Extract the topic ID from a JID, if present.
+ * Returns undefined for non-topic JIDs.
+ */
+export function parseTelegramTopicId(jid: string): number | undefined {
+  const match = jid.match(/:topic:(\d+)$/);
+  return match ? parseInt(match[1], 10) : undefined;
 }
 
 export class TelegramChannel implements Channel {
@@ -77,10 +99,18 @@ export class TelegramChannel implements Channel {
   /**
    * Construct a JID for a Telegram chat.
    * DMs with tenantId: tg:{tenantId}:{chatId}
-   * Groups (negative IDs) and non-tenant: tg:{chatId}
+   * Group topics: tg:{chatId}:topic:{topicId}
+   * Groups (no topic) and non-tenant: tg:{chatId}
    */
-  private buildJid(chatId: number, chatType: string): string {
+  private buildJid(
+    chatId: number,
+    chatType: string,
+    topicId?: number,
+  ): string {
     const isGroup = chatType === 'group' || chatType === 'supergroup';
+    if (isGroup && topicId) {
+      return `tg:${chatId}:topic:${topicId}`;
+    }
     if (this.tenantId && !isGroup) {
       return `tg:${this.tenantId}:${chatId}`;
     }
@@ -137,7 +167,8 @@ export class TelegramChannel implements Channel {
         if (TELEGRAM_BOT_COMMANDS.has(cmd)) return;
       }
 
-      const chatJid = this.buildJid(ctx.chat.id, ctx.chat.type);
+      const topicId = ctx.message.message_thread_id;
+      const chatJid = this.buildJid(ctx.chat.id, ctx.chat.type, topicId);
       let content = ctx.message.text;
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName =
@@ -147,7 +178,6 @@ export class TelegramChannel implements Channel {
         'Unknown';
       const sender = ctx.from?.id.toString() || '';
       const msgId = ctx.message.message_id.toString();
-      const topicId = ctx.message.message_thread_id;
 
       // Determine chat name
       const chatName =
@@ -216,7 +246,8 @@ export class TelegramChannel implements Channel {
 
     // Handle non-text messages with placeholders so the agent knows something was sent
     const storeNonText = (ctx: any, placeholder: string) => {
-      const chatJid = this.buildJid(ctx.chat.id, ctx.chat.type);
+      const topicId = ctx.message?.message_thread_id;
+      const chatJid = this.buildJid(ctx.chat.id, ctx.chat.type, topicId);
       const group = this.opts.registeredGroups()[chatJid];
       if (!group) return;
 
@@ -227,7 +258,6 @@ export class TelegramChannel implements Channel {
         ctx.from?.id?.toString() ||
         'Unknown';
       const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
-      const topicId = ctx.message?.message_thread_id;
 
       const isGroup =
         ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
@@ -300,8 +330,11 @@ export class TelegramChannel implements Channel {
 
     try {
       const numericId = parseTelegramChatId(jid);
-      const sendOpts = options?.topicId
-        ? { message_thread_id: options.topicId }
+      // Extract topic from JID or from explicit options
+      const jidTopicId = parseTelegramTopicId(jid);
+      const effectiveTopicId = options?.topicId ?? jidTopicId;
+      const sendOpts = effectiveTopicId
+        ? { message_thread_id: effectiveTopicId }
         : {};
 
       // Telegram has a 4096 character limit per message — split if needed

@@ -26,6 +26,7 @@ interface ContainerInput {
   chatJid: string;
   isMain: boolean;
   isScheduledTask?: boolean;
+  isCustomerFacing?: boolean;
   assistantName?: string;
   allowedTools?: string[];
 }
@@ -369,9 +370,10 @@ async function runQuery(
   let resultCount = 0;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
+  // Skip for main (has its own full context) and customer-facing (different rules)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
   let globalClaudeMd: string | undefined;
-  if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
+  if (!containerInput.isMain && !containerInput.isCustomerFacing && fs.existsSync(globalClaudeMdPath)) {
     globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 

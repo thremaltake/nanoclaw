@@ -738,6 +738,7 @@ async function main(): Promise<void> {
       if (tenant.chats.operations) {
         const ops = tenant.chats.operations;
         if (typeof ops === 'object' && 'chatId' in ops) {
+          // Register the base group (General topic / non-topic messages)
           const opsJid = `tg:${ops.chatId}`;
           jids.push(opsJid);
           channel.addManagedJid(opsJid);
@@ -753,6 +754,31 @@ async function main(): Promise<void> {
             isCustomerFacing: tenant.isCustomerFacing,
             allowedTools: mcpConfig.allowedTools,
           });
+
+          // Register each topic as its own JID for independent routing
+          if (ops.topics) {
+            for (const [topicIdStr, topicCfg] of Object.entries(ops.topics)) {
+              const topicJid = `tg:${ops.chatId}:topic:${topicIdStr}`;
+              const topicName =
+                typeof topicCfg === 'string'
+                  ? topicCfg
+                  : topicCfg.name;
+              jids.push(topicJid);
+              channel.addManagedJid(topicJid);
+              registerGroup(topicJid, {
+                name: `${tenant.name} — ${topicName}`,
+                folder: tenant.groupFolder,
+                trigger: `@${tenant.assistantName}`,
+                added_at: new Date().toISOString(),
+                requiresTrigger: false,
+                isMain: tenant.isAdmin ?? false,
+                tenantId: tenant.id,
+                assistantName: tenant.assistantName,
+                isCustomerFacing: tenant.isCustomerFacing,
+                allowedTools: mcpConfig.allowedTools,
+              });
+            }
+          }
         }
       }
 

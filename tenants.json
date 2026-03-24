@@ -28,6 +28,21 @@
       "sharedTools": [],
       "contacts": { "owner": "env:TELEGRAM_PERSONAL_CHAT_ID" },
       "chats": { "dm": "env:TELEGRAM_PERSONAL_CHAT_ID" }
+    },
+    {
+      "id": "lead-capture",
+      "name": "Lead Capture Chatbot",
+      "assistantName": "TestChat",
+      "botToken": "env:TELEGRAM_LEAD_BOT_TOKEN",
+      "groupFolder": "lead-capture",
+      "dbSchema": "work",
+      "isAdmin": false,
+      "isCustomerFacing": true,
+      "requiresTrigger": false,
+      "privateTools": ["deal-manager", "calendar"],
+      "sharedTools": [],
+      "contacts": { "owner": "env:TELEGRAM_CHAT_ID", "notifyOnError": true },
+      "chats": { "dm": "env:TELEGRAM_LEAD_CHAT_ID" }
     }
   ],
   "brokers": [
@@ -65,8 +80,6 @@
       "isAdmin": false,
       "isCustomerFacing": false,
       "requiresTrigger": false,
-      "privateTools": [],
-      "sharedTools": [],
       "contacts": { "owner": "env:TELEGRAM_CALIORT_CHAT_ID" },
       "chats": { "dm": "env:TELEGRAM_CALIORT_CHAT_ID" }
     }
