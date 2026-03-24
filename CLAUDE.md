@@ -93,12 +93,19 @@ npx vitest run src/tenant-config.test.ts  # Run single test file
 ./container/build.sh   # Rebuild agent container
 ```
 
-Service management (this VPS has no systemd — uses nohup wrapper):
+Service management (systemd on VPS — managed by ubuntu user with sudo):
 ```bash
-bash start-nanoclaw.sh              # Start/restart (kills old process, clears port)
+sudo systemctl start nanoclaw       # Start
+sudo systemctl stop nanoclaw        # Stop
+sudo systemctl restart nanoclaw     # Restart
+sudo journalctl -u nanoclaw -f      # Watch logs
+sudo systemctl status nanoclaw      # Check status
+```
+
+Fallback (nohup wrapper — avoid if systemd works, causes container exit 137):
+```bash
+bash start-nanoclaw.sh              # Start/restart
 kill $(cat nanoclaw.pid)            # Stop
-tail -f logs/nanoclaw.log           # Watch logs
-tail -f logs/nanoclaw.error.log     # Watch errors
 ```
 
 Container debugging:
