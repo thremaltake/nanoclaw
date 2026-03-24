@@ -102,11 +102,7 @@ export class TelegramChannel implements Channel {
    * Group topics: tg:{chatId}:topic:{topicId}
    * Groups (no topic) and non-tenant: tg:{chatId}
    */
-  private buildJid(
-    chatId: number,
-    chatType: string,
-    topicId?: number,
-  ): string {
+  private buildJid(chatId: number, chatType: string, topicId?: number): string {
     const isGroup = chatType === 'group' || chatType === 'supergroup';
     if (isGroup && topicId) {
       return `tg:${chatId}:topic:${topicId}`;

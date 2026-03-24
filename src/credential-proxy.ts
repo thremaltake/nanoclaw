@@ -110,7 +110,9 @@ export function startCredentialProxy(
               const errChunks: Buffer[] = [];
               upRes.on('data', (c) => errChunks.push(c));
               upRes.on('end', () => {
-                const errBody = Buffer.concat(errChunks).toString().slice(0, 500);
+                const errBody = Buffer.concat(errChunks)
+                  .toString()
+                  .slice(0, 500);
                 logger.warn(
                   { status: upRes.statusCode, url: req.url, body: errBody },
                   'Proxy upstream error response',

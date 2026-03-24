@@ -760,9 +760,7 @@ async function main(): Promise<void> {
             for (const [topicIdStr, topicCfg] of Object.entries(ops.topics)) {
               const topicJid = `tg:${ops.chatId}:topic:${topicIdStr}`;
               const topicName =
-                typeof topicCfg === 'string'
-                  ? topicCfg
-                  : topicCfg.name;
+                typeof topicCfg === 'string' ? topicCfg : topicCfg.name;
               jids.push(topicJid);
               channel.addManagedJid(topicJid);
               registerGroup(topicJid, {

@@ -105,7 +105,9 @@ function collectProjectMounts(): Array<{ hostPath: string; name: string }> {
   }
 
   // Backward compat: NANOCLAW_PROJECT_ROOT adds a single project
-  const legacyRoot = process.env.NANOCLAW_PROJECT_ROOT;
+  const envVars = readEnvFile(['NANOCLAW_PROJECT_ROOT']);
+  const legacyRoot =
+    process.env.NANOCLAW_PROJECT_ROOT || envVars.NANOCLAW_PROJECT_ROOT;
   if (legacyRoot) {
     try {
       const resolved = fs.realpathSync(legacyRoot);
@@ -271,7 +273,12 @@ function buildVolumeMounts(
   });
 
   // Project directories from mount allowlist (read-only, .env shadowed)
-  for (const project of collectProjectMounts()) {
+  const projectMounts = collectProjectMounts();
+  logger.info(
+    { projectCount: projectMounts.length, projects: projectMounts.map((p) => p.name) },
+    'Project mounts collected',
+  );
+  for (const project of projectMounts) {
     const containerPath = `/workspace/projects/${project.name}`;
     mounts.push({
       hostPath: project.hostPath,

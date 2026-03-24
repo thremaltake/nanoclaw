@@ -202,9 +202,7 @@ function createSchema(database: Database.Database): void {
 
   // Add topic_id column if it doesn't exist (migration for existing DBs)
   try {
-    database.exec(
-      `ALTER TABLE messages ADD COLUMN topic_id INTEGER`,
-    );
+    database.exec(`ALTER TABLE messages ADD COLUMN topic_id INTEGER`);
   } catch {
     /* column already exists */
   }

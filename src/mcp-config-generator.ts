@@ -191,7 +191,7 @@ export function generateMcpConfig(tenant: ResolvedTenant): GeneratedMcpConfig {
  * - >5 tools: 1024m
  */
 export function deriveMemoryLimit(tenant: ResolvedTenant): string {
-  if (tenant.isCustomerFacing) return '1024m';
-  if (tenant.allTools.length > 5) return '4096m';
-  return '2048m';
+  if (tenant.isCustomerFacing) return '2048m';
+  if (tenant.allTools.length > 5) return '8192m';
+  return '4096m';
 }
