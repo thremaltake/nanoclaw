@@ -275,15 +275,19 @@ function buildVolumeMounts(
   // Project directories from mount allowlist (read-only, .env shadowed)
   const projectMounts = collectProjectMounts();
   logger.info(
-    { projectCount: projectMounts.length, projects: projectMounts.map((p) => p.name) },
+    {
+      projectCount: projectMounts.length,
+      projects: projectMounts.map((p) => p.name),
+    },
     'Project mounts collected',
   );
   for (const project of projectMounts) {
     const containerPath = `/workspace/projects/${project.name}`;
+    // Read-write needed for MCP servers that use local databases (e.g. LanceDB)
     mounts.push({
       hostPath: project.hostPath,
       containerPath,
-      readonly: true,
+      readonly: false,
     });
 
     // Shadow .env so the agent cannot read project secrets
