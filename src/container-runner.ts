@@ -314,7 +314,7 @@ export function buildContainerArgs(
   // Prevent privilege escalation inside the container
   args.push('--security-opt=no-new-privileges');
   args.push('--cap-drop=ALL');
-  args.push('--pids-limit', '256');
+  args.push('--pids-limit', '512');
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
@@ -607,6 +607,13 @@ export async function runContainerAgent(
       timeout = setTimeout(killOnTimeout, timeoutMs);
     };
 
+    container.on('exit', (code, signal) => {
+      logger.info(
+        { group: group.name, containerName, code, signal },
+        'Container process exit event',
+      );
+    });
+
     container.on('close', (code) => {
       clearTimeout(timeout);
       const duration = Date.now() - startTime;
@@ -717,6 +724,23 @@ export async function runContainerAgent(
       logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
 
       if (code !== 0) {
+        // If we already streamed successful output, treat post-output crashes
+        // (e.g. exit 137 during MCP server cleanup) as success, not error.
+        if (hadStreamingOutput) {
+          logger.info(
+            { group: group.name, code, duration },
+            'Container crashed after output (cleanup crash, treating as success)',
+          );
+          outputChain.then(() => {
+            resolve({
+              status: 'success',
+              result: null,
+              newSessionId,
+            });
+          });
+          return;
+        }
+
         logger.error(
           {
             group: group.name,

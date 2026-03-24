@@ -257,7 +257,7 @@ describe('container hardening', () => {
     const args = buildContainerArgs([], 'test-container');
     const idx = args.indexOf('--pids-limit');
     expect(idx).toBeGreaterThan(-1);
-    expect(args[idx + 1]).toBe('256');
+    expect(args[idx + 1]).toBe('512');
   });
 
   it('sets --memory when memoryLimit provided', () => {
