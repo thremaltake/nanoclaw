@@ -5,6 +5,7 @@ import {
   ASSISTANT_NAME,
   CREDENTIAL_PROXY_PORT,
   escapeRegex,
+  GROUPS_DIR,
   IDLE_TIMEOUT,
   POLL_INTERVAL,
   TIMEZONE,
@@ -596,6 +597,34 @@ async function main(): Promise<void> {
   initDatabase();
   logger.info('Database initialized');
   loadState();
+
+  // Clean up old attachments (>7 days) from all group directories
+  function cleanupOldAttachments(): void {
+    const maxAge = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    try {
+      const groupDirs = fs.readdirSync(GROUPS_DIR, { withFileTypes: true });
+      for (const dir of groupDirs) {
+        if (!dir.isDirectory()) continue;
+        const attachDir = path.join(GROUPS_DIR, dir.name, 'attachments');
+        if (!fs.existsSync(attachDir)) continue;
+        const files = fs.readdirSync(attachDir);
+        for (const file of files) {
+          const filePath = path.join(attachDir, file);
+          const stat = fs.lstatSync(filePath);
+          if (stat.isSymbolicLink()) continue;
+          if (now - stat.mtimeMs > maxAge) {
+            fs.unlinkSync(filePath);
+            logger.debug({ file: filePath }, 'Deleted old attachment');
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Attachment cleanup error');
+    }
+  }
+  cleanupOldAttachments();
+
   restoreRemoteControl();
 
   tenantConfig = await loadTenantConfig();
