@@ -205,7 +205,10 @@ async function downloadTelegramFile(
     // Verify downloaded file size (file_size from Telegram metadata is optional)
     const stat = fs.statSync(destPath);
     if (stat.size > MAX_FILE_SIZE) {
-      logger.warn({ fileId, size: stat.size }, 'Downloaded file exceeds size limit');
+      logger.warn(
+        { fileId, size: stat.size },
+        'Downloaded file exceeds size limit',
+      );
       fs.unlinkSync(destPath);
       return null;
     }
