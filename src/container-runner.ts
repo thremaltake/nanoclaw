@@ -48,6 +48,12 @@ const MCP_ENV_KEYS = [
   'GOOGLE_REFRESH_TOKEN',
   'BSR_BASE_URL',
   'BSR_AUTH_SECRET',
+  'HIMALAYA_WORK_PASS',
+  'HIMALAYA_WORK_CALIORT_PASS',
+  'HIMALAYA_PERSONAL_PASS',
+  'HIMALAYA_WORK_GMAIL_PASS',
+  'HIMALAYA_PERSONAL_ICLOUD_PASS',
+  'HIMALAYA_PERSONAL_ICLOUD_WORK_PASS',
 ];
 const mcpEnvVars = readEnvFile(MCP_ENV_KEYS);
 
@@ -371,6 +377,16 @@ export function buildContainerArgs(
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
   } else {
     args.push('-e', 'ANTHROPIC_AUTH_TOKEN=placeholder');
+  }
+
+  // Mount himalaya CLI binary and config into container (read-only)
+  // so email MCP tools can invoke himalaya commands.
+  if (fs.existsSync('/usr/local/bin/himalaya')) {
+    args.push(...readonlyMountArgs('/usr/local/bin/himalaya', '/usr/local/bin/himalaya'));
+  }
+  const himalayaConfigDir = path.join(os.homedir(), '.config', 'himalaya');
+  if (fs.existsSync(himalayaConfigDir)) {
+    args.push(...readonlyMountArgs(himalayaConfigDir, '/home/node/.config/himalaya'));
   }
 
   // Pass MCP environment variables into the container so .mcp.json ${VAR}
