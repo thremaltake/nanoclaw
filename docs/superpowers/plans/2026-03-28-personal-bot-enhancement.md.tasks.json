@@ -1,0 +1,89 @@
+{
+  "planPath": "docs/superpowers/plans/2026-03-28-personal-bot-enhancement.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 0: Supabase Migration",
+      "status": "pending",
+      "description": "Create vendor_categories table and add source/financial_year columns to tax_invoices.",
+      "metadata": {
+        "files": ["/home/nanoclaw/brokerpilot/supabase/migrations/20260328_personal_bot_enhancement.sql"],
+        "verifyCommand": "Query information_schema to confirm table and columns",
+        "acceptanceCriteria": ["vendor_categories table exists", "tax_invoices has source column", "tax_invoices has financial_year generated column", "index on category exists"]
+      }
+    },
+    {
+      "id": 2,
+      "subject": "Task 1: File Download Pipeline (telegram.ts)",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "Download photos and documents from Telegram instead of placeholder text.",
+      "metadata": {
+        "files": ["/home/nanoclaw/nanoclaw/src/channels/telegram.ts"],
+        "verifyCommand": "sudo ls /home/nanoclaw/nanoclaw/groups/personal/attachments/",
+        "acceptanceCriteria": ["photos downloaded to attachments dir", "filenames sanitized", "safe types only", "fallback to placeholder on failure"]
+      }
+    },
+    {
+      "id": 3,
+      "subject": "Task 2: Personal Finance — Vendor Learning & Recurring Expense Tools",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "Add vendor-category learning, recurring expense detection, and spending velocity tools.",
+      "metadata": {
+        "files": ["/home/nanoclaw/brokerpilot/modules/personal-finance/src/db.ts", "/home/nanoclaw/brokerpilot/modules/personal-finance/src/tools.ts"],
+        "verifyCommand": "cd /home/nanoclaw/brokerpilot/modules/personal-finance && npm run build",
+        "acceptanceCriteria": ["5 new tools registered", "log_transaction auto-learns vendor", "recurring expense detection works", "spending velocity returns budget burn rate"]
+      }
+    },
+    {
+      "id": 4,
+      "subject": "Task 3: Document Store — FY Report Tool & Source Column",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "Add generate_fy_report tool and source column to tax invoices.",
+      "metadata": {
+        "files": ["/home/nanoclaw/brokerpilot/modules/document-store/src/db.ts", "/home/nanoclaw/brokerpilot/modules/document-store/src/tools.ts"],
+        "verifyCommand": "cd /home/nanoclaw/brokerpilot/modules/document-store && npm run build",
+        "acceptanceCriteria": ["save_tax_invoice accepts source", "generate_fy_report works", "cross-references transactions for missing receipts"]
+      }
+    },
+    {
+      "id": 5,
+      "subject": "Task 4: Personal Bot CLAUDE.md Rewrite",
+      "status": "pending",
+      "blockedBy": [3, 4],
+      "description": "Rewrite Personal bot system prompt with all new behaviors.",
+      "metadata": {
+        "files": ["/home/nanoclaw/nanoclaw/groups/personal/CLAUDE.md"],
+        "verifyCommand": "Send test messages to @AndryPersonalBot",
+        "acceptanceCriteria": ["casual tone", "receipt scanning defined", "natural language expenses defined", "morning briefing format defined", "all tools listed"]
+      }
+    },
+    {
+      "id": 6,
+      "subject": "Task 5: Create Scheduled Tasks",
+      "status": "pending",
+      "blockedBy": [3, 4],
+      "description": "Insert morning briefing, weekly summary, email scan, and BAS reminder scheduled tasks.",
+      "metadata": {
+        "files": ["/home/nanoclaw/nanoclaw/store/messages.db"],
+        "verifyCommand": "sudo sqlite3 /home/nanoclaw/nanoclaw/store/messages.db \"SELECT id, status FROM scheduled_tasks WHERE group_folder='personal';\"",
+        "acceptanceCriteria": ["7 tasks created", "correct cron schedules", "correct JID targeting"]
+      }
+    },
+    {
+      "id": 7,
+      "subject": "Task 6: Attachment Cleanup & Final Verification",
+      "status": "pending",
+      "blockedBy": [2, 3, 4, 5, 6],
+      "description": "Add attachment cleanup logic and do end-to-end testing.",
+      "metadata": {
+        "files": ["/home/nanoclaw/nanoclaw/src/index.ts"],
+        "verifyCommand": "sudo systemctl restart nanoclaw.service && send test messages",
+        "acceptanceCriteria": ["attachment cleanup works", "receipt scanning e2e", "expense entry e2e", "no regressions"]
+      }
+    }
+  ],
+  "lastUpdated": "2026-03-28T07:45:00.000Z"
+}
