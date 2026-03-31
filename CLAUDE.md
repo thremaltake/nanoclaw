@@ -10,6 +10,12 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 
 **Multi-tenant mode** (active): `tenants.json` defines tenants (brokers + system). Each tenant gets its own Telegram bot, group folder, MCP tool scoping, and session isolation. When `tenants.json` exists, the orchestrator creates per-tenant TelegramChannel instances instead of using the channel registry.
 
+## Git Sync
+
+**Always `git pull` at the start of every session.** Before doing any work — on Mac or VPS — run `git pull origin main` to get the latest code from GitHub. Don't skip this — stale code causes merge conflicts and duplicated work.
+
+**Always commit and push at the end of every session.** After finishing work, stage changes, commit with a clear message, and `git push origin main` so the other machine can pick up where you left off.
+
 ## Architecture
 
 ### Message Flow
